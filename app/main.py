@@ -9,7 +9,7 @@ from app.schemas import RegisterRequest, LoginRequest, TokenResponse
 from app.models import User
 from app.core.database import AsyncSessionLocal, engine, Base
 from app.core.security import hash_password, verify_password, create_access_token
-from app.routers import chat, note, translate, user
+from app.routers import chat, note, translate, user, tools
 from fastapi.security import OAuth2PasswordRequestForm
 
 
@@ -96,3 +96,4 @@ app.include_router(chat.router)
 app.include_router(note.router)
 app.include_router(translate.router)
 app.include_router(user.router)
+app.include_router(tools.router)

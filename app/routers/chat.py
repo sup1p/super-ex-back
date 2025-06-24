@@ -10,10 +10,10 @@ from app.schemas import ChatSessionMessageRead, ChatSessionRead
 from app.core.dependencies import (
     get_db,
     get_current_user,
-    get_ai_answer,
     handle_voice_websocket,
 )
 from app.core.config import settings
+from app.services.voice import get_ai_answer
 
 from jose import JWTError, jwt
 from typing import List
