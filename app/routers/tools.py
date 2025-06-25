@@ -7,6 +7,8 @@ from app.core.dependencies import get_current_user
 
 from app.services import summarize
 
+from app.schemas import SummaryRequest
+
 
 router = APIRouter()
 
@@ -16,11 +18,10 @@ router = APIRouter()
     tags=["Tools"],
 )
 async def summarize_webpage(
-    text: str,
-    lang: str,
+    summary_request: SummaryRequest,
     current_user: User = Depends(get_current_user),
 ):
-    return await summarize.summarize_text_full(text, lang, 2000)
+    return await summarize.summarize_text_full(summary_request.text, 2000)
 
 
 # @router.get("/tool/translate", tags=["Tools"])

@@ -13,6 +13,7 @@ class User(Base):
     name = Column(String, index=True, default=None)
     email = Column(String, unique=True, index=True)
     hashed_password = Column(String)
+    avatar_url = Column(String, default=None, nullable=True)
 
     notes = relationship("Notes", back_populates="user", cascade="all, delete-orphan")
     sessions = relationship(
