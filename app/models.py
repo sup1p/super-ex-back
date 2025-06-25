@@ -1,4 +1,4 @@
-from sqlalchemy import String, Integer, Column, ForeignKey, DateTime, Text
+from sqlalchemy import String, Integer, Column, ForeignKey, DateTime, Text, Boolean
 from sqlalchemy.orm import relationship
 from datetime import datetime
 
@@ -12,8 +12,9 @@ class User(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, index=True, default=None)
     email = Column(String, unique=True, index=True)
-    hashed_password = Column(String)
+    hashed_password = Column(String, nullable=True)
     avatar_url = Column(String, default=None, nullable=True)
+    is_oauth_user = Column(Boolean, default=False)
 
     notes = relationship("Notes", back_populates="user", cascade="all, delete-orphan")
     sessions = relationship(

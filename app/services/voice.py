@@ -110,10 +110,18 @@ async def synthesize_speech_async(answer, voice, tts_path):
     await communicate.save(tts_path)
 
 
-model = whisper.load_model("small")
+_model = None
+
+
+def get_whisper_model():
+    global _model
+    if _model is None:
+        _model = whisper.load_model("small")  # можно добавить device="cpu"
+    return _model
 
 
 async def transcribe_audio_async(audio_path):
+    model = get_whisper_model()
     return model.transcribe(
         audio_path,
         no_speech_threshold=0.8,

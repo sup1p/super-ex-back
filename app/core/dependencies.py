@@ -34,8 +34,6 @@ voice_map = {
     "kk": "kk-KZ-DauletNeural",
 }
 
-model = whisper.load_model("small")
-
 
 def is_valid_text(text: str) -> bool:
     # Проверяем минимальную длину оригинального текста
