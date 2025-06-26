@@ -49,6 +49,7 @@ class IntentAgent:
         - command (browser/tab actions)
         - question
         - media (play, pause, next, previous, etc. for video/audio)
+        - generate_text (user wants to generate an essay, summary, article, note, etc.)
         - noise
         - uncertain
 
@@ -64,6 +65,10 @@ class IntentAgent:
         User: "закрой вкладку" → command
         User: "какая погода?" → question
         User: "спасибо" → noise
+        User: "Напиши эссе о космосе" → generate_text
+        User: "Сделай реферат по истории" → generate_text
+        User: "Создай заметку: купить хлеб" → generate_text
+        User: "Запиши: позвонить маме завтра" → generate_text
 
         Input: \"{text}\"
         """
@@ -297,3 +302,36 @@ User input: "{text}"
             except json.JSONDecodeError:
                 return {"command": {"action": "control_media", "mediaCommand": "noop"}}
         return {"command": {"action": "control_media", "mediaCommand": "noop"}}
+
+
+class TextGenerationAgent:
+    @staticmethod
+    async def handle_generate_text(text: str, lang: str) -> dict:
+        prompt = f"""
+        If the user wants to create a note, extract a short title (max 2 words) and the main text from the request.
+        Respond ONLY with a JSON object in this format:
+        {{
+          "command": {{
+            "action": "create_note",
+            "title": "<short title, max 2 words>",
+            "text": "<note text>"
+          }}
+        }}
+        If the user wants to generate an essay, summary, article, or other text, just return the generated text as a string.
+        Do not add any text or comments outside the JSON or string.
+        User language: {lang}
+        User input: "{text}"
+        """
+        print(f"[TextGenerationAgent] Input: {text}, lang: {lang}")
+        print(f"[TextGenerationAgent] Prompt: {prompt}")
+        response = await get_ai_answer(prompt)
+        print(f"[TextGenerationAgent] Output: {response}")
+        # Try to parse as note command, otherwise return as plain text
+        match = CMD_JSON_RE.search(response)
+        if match:
+            json_str = match.group(0)
+            try:
+                return json.loads(json_str)
+            except json.JSONDecodeError:
+                pass
+        return {"text": response}

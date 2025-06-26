@@ -6,10 +6,8 @@ from sqlalchemy import select
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.models import User
-import httpx
 from dotenv import load_dotenv
 import logging
-import whisper
 import base64
 import json
 import os
@@ -21,6 +19,7 @@ from ..services.voice import (
     IntentAgent,
     ActionAgent,
     MediaAgent,
+    TextGenerationAgent,
     synthesize_speech_async,
     transcribe_audio_async,
 )
@@ -146,6 +145,11 @@ async def handle_voice_websocket(websocket: WebSocket):
                 elif intent == "question":
                     answer = await ActionAgent.handle_question(text, lang)
                     print(f"AI responded with default answer: {answer}")
+                elif intent == "generate_text":
+                    result = await TextGenerationAgent.handle_generate_text(text, lang)
+                    print(f"AI generated text or note: {result}")
+                    await websocket.send_json(result)
+                    continue
                 else:
                     answer = "Пожалуйста, повторите команду."
                     print("AI could not understand request")
