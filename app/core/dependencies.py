@@ -15,10 +15,12 @@ import json
 import os
 import re
 import tempfile
+from edge_tts.exceptions import NoAudioReceived
 
 from ..services.voice import (
     IntentAgent,
     ActionAgent,
+    MediaAgent,
     synthesize_speech_async,
     transcribe_audio_async,
 )
@@ -136,6 +138,11 @@ async def handle_voice_websocket(websocket: WebSocket):
                     print(f"AI responded with command: {cmd}")
                     await websocket.send_json({"command": cmd})
                     continue
+                elif intent == "media":
+                    cmd = await MediaAgent.handle_media_command(text, lang)
+                    print(f"AI responded with media command: {cmd}")
+                    await websocket.send_json(cmd)
+                    continue
                 elif intent == "question":
                     answer = await ActionAgent.handle_question(text, lang)
                     print(f"AI responded with default answer: {answer}")
@@ -146,11 +153,20 @@ async def handle_voice_websocket(websocket: WebSocket):
                 voice = voice_map.get(lang, "en-US-GuyNeural")
                 with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as f:
                     tts_path = f.name
-                await synthesize_speech_async(answer, voice, tts_path)
-
-                with open(tts_path, "rb") as f:
-                    audio_b64 = base64.b64encode(f.read()).decode()
-                os.remove(tts_path)
+                try:
+                    await synthesize_speech_async(answer, voice, tts_path)
+                except NoAudioReceived:
+                    answer = "Ошибка синтеза речи: не удалось получить аудио. Попробуйте другой язык или переформулируйте запрос."
+                    print("[TTS] No audio received from edge_tts.")
+                    audio_b64 = ""
+                except Exception as tts_e:
+                    logging.error(f"TTS error: {tts_e}", exc_info=True)
+                    answer = f"Ошибка синтеза речи: {tts_e}"
+                    audio_b64 = ""
+                else:
+                    with open(tts_path, "rb") as f:
+                        audio_b64 = base64.b64encode(f.read()).decode()
+                    os.remove(tts_path)
 
                 await websocket.send_json(
                     {"text": answer, "language": lang, "audio_base64": audio_b64}
@@ -167,7 +183,7 @@ async def handle_voice_websocket(websocket: WebSocket):
     except WebSocketDisconnect:
         pass
     except Exception as e:
-        logging.exception("WebSocket error:", e)
+        logging.error(f"WebSocket error: {e}", exc_info=True)
         try:
             await websocket.close(code=1011, reason="Server error")
         except:

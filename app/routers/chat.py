@@ -97,7 +97,7 @@ async def websocket_chat(websocket: WebSocket):
                 print(f"Получено сообщение: {data}")
                 if chat_session is None:
                     # Получаем название чата от ИИ
-                    prompt = f"Придумай короткое название для чата по этому сообщению: {data}"
+                    prompt = f"Придумай короткое название для чата по этому сообщению. Ответь ТОЛЬКО ОДНИМ СЛОВОМ: {data}"
                     chat_name = await get_ai_answer(prompt)
                     chat_session = ChatSession(user_id=user.id, name=chat_name)
                     db.add(chat_session)
