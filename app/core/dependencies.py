@@ -117,22 +117,18 @@ async def handle_voice_websocket(websocket: WebSocket):
 
                 print(f"Transcribed text: {text}")
 
-                if not is_valid_text(text) or text == last_text:
+                if not is_valid_text(text):
                     print(f"Пропускаем бессмысленный текст: {text}")
                     continue
-                last_text = text
 
                 lang = result.get("language", "en")
                 intent = await IntentAgent.detect_intent(text)
 
-                avg_logprob = result.get("avg_logprob", -1.0)
-                no_speech_p = result.get("no_speech_prob", 1.0)
                 lang = result.get("language", "en")
-                confidence = 1 - max(no_speech_p, -avg_logprob)
 
                 if intent == "command":
                     cmd = await ActionAgent.handle_command(
-                        text, lang, user_tabs, confidence
+                        text, lang, user_tabs
                     )
                     print(f"AI responded with command: {cmd}")
                     await websocket.send_json({"command": cmd})

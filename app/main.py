@@ -1,6 +1,6 @@
 # app/main.py  (полностью асинхронный вариант)
 
-from fastapi import FastAPI, HTTPException, Depends, status
+from fastapi import FastAPI, HTTPException, Depends, status, Request
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -11,6 +11,12 @@ from app.core.database import AsyncSessionLocal, engine, Base
 from app.core.security import hash_password, verify_password, create_access_token
 from app.routers import chat, note, translate, user, tools, smtp
 from fastapi.security import OAuth2PasswordRequestForm
+
+from pydantic import BaseModel
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
 
 
 # ────────────────────────────── DB (инициализация) ─────────────────────────────
@@ -71,13 +77,23 @@ async def login(
 async def login(
     data: LoginRequest, db: AsyncSession = Depends(get_db)
 ) -> TokenResponse:
-    print(data)
     res = await db.execute(select(User).where(User.email == data.email))
     user = res.scalar_one_or_none()
     if not user or not verify_password(data.password, user.hashed_password):
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
     return TokenResponse(access_token=create_access_token(str(user.id)))
+
+
+load_dotenv()
+
+GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
+GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
+REDIRECT_URI = "http://localhost:3000/auth/callback"
+
+
+class Code(BaseModel):
+    code: str
 
 
 # ────────────────────────────── Misc ───────────────────────────────────────────

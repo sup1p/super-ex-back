@@ -1,11 +1,9 @@
 import re
 import json
 import edge_tts
-import whisper
 import httpx
-import logging
 import os
-
+from faster_whisper import WhisperModel
 
 CMD_JSON_RE = re.compile(r"\{.*\}", re.S)
 
@@ -46,9 +44,9 @@ class IntentAgent:
     async def detect_intent(text: str) -> str:
         prompt = f"""
         Classify the user's intent into one of the following:
-        - command (browser/tab actions)
+        - command (browser/tab actions like open, close, switch, or **searching** on Google/YouTube)
         - question
-        - media (play, pause, next, previous, etc. for video/audio)
+        - media (controlling media **on the current page**: play, pause, next, volume)
         - generate_text (user wants to generate an essay, summary, article, note, etc.)
         - noise
         - uncertain
@@ -63,6 +61,9 @@ class IntentAgent:
         User: "следующее видео" → media
         User: "открой ютуб" → command
         User: "закрой вкладку" → command
+        User: "найди видео с котиками" → command
+        User: "включи видео про dota 2" → command
+        User: "search for how to cook pasta" → command
         User: "какая погода?" → question
         User: "спасибо" → noise
         User: "Напиши эссе о космосе" → generate_text
@@ -82,11 +83,11 @@ class IntentAgent:
 class ActionAgent:
     @staticmethod
     async def handle_command(
-        text: str, lang: str, tabs: list[dict], confidence: float
+        text: str, lang: str, tabs: list[dict]
     ) -> dict:
-        prompt = build_prompt(text, confidence, lang, tabs)
+        prompt = build_prompt(text, lang, tabs)
         print(
-            f"[ActionAgent] Input: {text}, lang: {lang}, confidence: {confidence}, tabs: {tabs}"
+            f"[ActionAgent] Input: {text}, lang: {lang}, tabs: {tabs}"
         )
         print(f"[ActionAgent] Prompt: {prompt}")
         response = await get_ai_answer(prompt)
@@ -117,7 +118,7 @@ class ActionAgent:
         return response
 
 
-def build_prompt(user_text: str, confidence: float, lang: str, tabs: list[dict]) -> str:
+def build_prompt(user_text: str, lang: str, tabs: list[dict]) -> str:
     tabs_description_parts = []
     for tab in tabs:
         active_status = " (active)" if tab.get("active") else ""
@@ -129,7 +130,6 @@ def build_prompt(user_text: str, confidence: float, lang: str, tabs: list[dict])
     rules = f"""
         You are a multilingual voice assistant in a browser extension.
         User speaks: {lang}
-        Transcription confidence: {confidence:.2f}
 
         --- USER BROWSER TABS ---
         {tabs_description if tabs else "No tabs are currently open."}
@@ -150,17 +150,25 @@ def build_prompt(user_text: str, confidence: float, lang: str, tabs: list[dict])
         4. Open a new website:
         {{ "action": "open_url", "url": "https://youtube.com" }}
 
+        5. Search on the web (e.g., Google, YouTube):
+        {{ "action": "open_url", "url": "https://www.google.com/search?q=some+search+query" }}
+
 
         RULES:
         - For "switch_tab" or "close_tab" (single), find the tab that best matches the user's keywords (e.g., "YouTube", "чатжпт") in the URL and return its index.
         - For "close_tab" with multiple tabs:
           - If the user says "close all tabs except the active one", find all tab indices that are not active and return them in the "tabIndices" array.
           - If the user names multiple tabs (e.g., "close extensions and localhost"), find the indices for all matching tabs and return them.
-        - For "open_url", if no matching tab is found and the user wants to open a new site, return the appropriate full URL.
+        - For "open_url", if the user provides a direct URL or a site name, use that.
+        - If the user asks to find something (e.g., "find cats" or "search for music on YouTube"), construct a search URL and use the "open_url" action. Default to Google search unless another service like YouTube is specified.
         - If uncertain what to do — respond:
         {{ "action": "noop" }}
         
-        If confidence < 0.85 or user input is unclear — respond in user language: "Please repeat your command".
+        EXAMPLES:
+        - User input: "включи видео с котятами на ютуб" -> {{ "action": "open_url", "url": "https://www.youtube.com/results?search_query=видео+с+котятами" }}
+        - User input: "найди рецепт борща" -> {{ "action": "open_url", "url": "https://www.google.com/search?q=рецепт+борща" }}
+        
+        If user input is unclear — respond in user language: "Please repeat your command".
 
         - JSON must be strict and in English only. DO NOT add any text or comments outside the JSON.
 
@@ -181,21 +189,21 @@ _model = None
 def get_whisper_model():
     global _model
     if _model is None:
-        _model = whisper.load_model("small")  # можно добавить device="cpu"
+        _model = WhisperModel("small", compute_type="int8", device="cpu")
     return _model
 
 
 async def transcribe_audio_async(audio_path):
     model = get_whisper_model()
-    return model.transcribe(
-        audio_path,
-        no_speech_threshold=0.8,
-        temperature=0.0,
-    )
+    segments, info = model.transcribe(audio_path, beam_size=1)
+    full_text = "".join(segment.text for segment in segments).strip()
+    return {
+        "text": full_text,
+        "language": info.language,
+    }
 
 
 async def get_ai_answer(question: str):
-    logging.info(f"get_ai_answer: {question}")
     payload = {"contents": [{"role": "user", "parts": [{"text": question}]}]}
     headers = {"Content-Type": "application/json"}
     try:
@@ -210,10 +218,8 @@ async def get_ai_answer(question: str):
             clean_text = text_answer.replace("\n", "").strip()
             return clean_text
     except httpx.ReadTimeout:
-        logging.error("get_ai_answer: ReadTimeout")
         return "Внешний сервис не ответил вовремя (таймаут). Попробуйте позже."
     except Exception as e:
-        logging.error(f"get_ai_answer: Ошибка обращения к ИИ: {e}")
         return f"Ошибка обращения к ИИ: {e}"
 
 
@@ -308,19 +314,31 @@ class TextGenerationAgent:
     @staticmethod
     async def handle_generate_text(text: str, lang: str) -> dict:
         prompt = f"""
-        If the user wants to create a note, extract a short title (max 2 words) and the main text from the request.
-        Respond ONLY with a JSON object in this format:
+        Analyze the user's request. If the user asks to create a note, essay, story, article, summary, letter, or any other type of text — complete the task and ALWAYS return the RESPONSE ONLY as a strict JSON in the following format:
         {{
           "command": {{
             "action": "create_note",
-            "title": "<short title, max 2 words>",
-            "text": "<note text>"
+            "title": "<short title or topic, 2-3 words>",
+            "text": "<main text, full response>"
           }}
         }}
-        If the user wants to generate an essay, summary, article, or other text, just return the generated text as a string.
-        Do not add any text or comments outside the JSON or string.
+
+        Rules:
+        - If it is a note, action = create_note, title — a short summary of the note, text — the full note text.
+        - If the user did not provide an explicit title, invent a short title based on the meaning.
+        - Do not add any comments, explanations, or text outside the JSON.
+        - Always return only JSON in the specified format.
+        - The response language must match the user's language.
+
+        Examples:
+        User: "Create a note: buy bread and milk" → {{"command": {{"action": "create_note", "title": "Shopping List", "text": "Buy bread and milk"}}}}
+        User: "Write an essay about space" → {{"command": {{"action": "create_note", "title": "Space", "text": "<essay about space>"}}}}
+        User: "Make a summary on Russian history" → {{"command": {{"action": "create_note", "title": "Russian History", "text": "<summary>"}}}}
+        User: "Create a story about a cat" → {{"command": {{"action": "create_note", "title": "Cat Story", "text": "<story>"}}}}
+        User: "Note: call mom tomorrow" → {{"command": {{"action": "create_note", "title": "Call Mom", "text": "Call mom tomorrow"}}}}
+
         User language: {lang}
-        User input: "{text}"
+        User request: "{text}"
         """
         print(f"[TextGenerationAgent] Input: {text}, lang: {lang}")
         print(f"[TextGenerationAgent] Prompt: {prompt}")

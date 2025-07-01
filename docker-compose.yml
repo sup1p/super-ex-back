@@ -1,0 +1,31 @@
+version: "3.9"
+
+services:
+  db:
+    image: postgres:16
+    container_name: extension_db
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: omar2007
+      POSTGRES_DB: extension_db
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  backend:
+    build: .
+    container_name: super-ex-back
+    depends_on:
+      - db
+    environment:
+      # Важно! Используем имя сервиса db вместо localhost
+      DATABASE_URL: postgresql+asyncpg://postgres:omar2007@db:5432/extension_db
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+
+volumes:
+  pgdata:

@@ -18,6 +18,9 @@ from app.services.voice import get_ai_answer
 from jose import JWTError, jwt
 from typing import List
 import traceback
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 router = APIRouter()
@@ -32,6 +35,22 @@ async def get_all_chats(
     )
     chats = result.scalars().all()
     return chats
+
+
+@router.delete("/chat/delete", tags=["Chat"])
+async def delete_chat(
+    chat_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    chat = await db.get(ChatSession, chat_id)
+    logger.info("dasdasdasdas")
+    logger.info(chat)
+    if chat is None or chat.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Chat not found")
+    await db.delete(chat)
+    await db.commit()
+    return "Deleted"
 
 
 @router.get(
