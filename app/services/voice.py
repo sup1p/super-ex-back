@@ -1,15 +1,17 @@
 import re
 import json
-import edge_tts
+import aiohttp
 import httpx
 import os
 from faster_whisper import WhisperModel
+import logging
 
 CMD_JSON_RE = re.compile(r"\{.*\}", re.S)
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 GEMINI_URL = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}"
 
+logger = logging.getLogger(__name__)
 
 """
 Server Response Format for Media Control Commands
@@ -62,7 +64,8 @@ class IntentAgent:
         User: "открой ютуб" → command
         User: "закрой вкладку" → command
         User: "найди видео с котиками" → command
-        User: "включи видео про dota 2" → command
+        User: "включи видео про dota 2" → commandimport aiohttp
+
         User: "search for how to cook pasta" → command
         User: "какая погода?" → question
         User: "спасибо" → noise
@@ -82,13 +85,9 @@ class IntentAgent:
 
 class ActionAgent:
     @staticmethod
-    async def handle_command(
-        text: str, lang: str, tabs: list[dict]
-    ) -> dict:
+    async def handle_command(text: str, lang: str, tabs: list[dict]) -> dict:
         prompt = build_prompt(text, lang, tabs)
-        print(
-            f"[ActionAgent] Input: {text}, lang: {lang}, tabs: {tabs}"
-        )
+        print(f"[ActionAgent] Input: {text}, lang: {lang}, tabs: {tabs}")
         print(f"[ActionAgent] Prompt: {prompt}")
         response = await get_ai_answer(prompt)
         print(f"[ActionAgent] Output: {response}")
@@ -168,7 +167,7 @@ def build_prompt(user_text: str, lang: str, tabs: list[dict]) -> str:
         - User input: "включи видео с котятами на ютуб" -> {{ "action": "open_url", "url": "https://www.youtube.com/results?search_query=видео+с+котятами" }}
         - User input: "найди рецепт борща" -> {{ "action": "open_url", "url": "https://www.google.com/search?q=рецепт+борща" }}
         
-        If user input is unclear — respond in user language: "Please repeat your command".
+        If user input is unclear — respond in user language: "Please repeat yologger = logging.getLogger(__name__)ur command".
 
         - JSON must be strict and in English only. DO NOT add any text or comments outside the JSON.
 
@@ -178,9 +177,28 @@ def build_prompt(user_text: str, lang: str, tabs: list[dict]) -> str:
     return rules.strip()
 
 
-async def synthesize_speech_async(answer, voice, tts_path):
-    communicate = edge_tts.Communicate(answer, voice=voice)
-    await communicate.save(tts_path)
+ELEVEN_LABS_API_KEY = os.getenv("ELEVEN_LABS_API_KEY")
+
+
+async def synthesize_speech_async(text: str, voice_id: str, output_path: str):
+    url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}"
+    headers = {
+        "xi-api-key": ELEVEN_LABS_API_KEY,
+        "Content-Type": "application/json",
+        "Accept": "audio/mpeg",
+    }
+    payload = {
+        "text": text,
+        "model_id": "eleven_multilingual_v2",
+        "voice_settings": {"stability": 0.5, "similarity_boost": 0.7},
+    }
+
+    async with aiohttp.ClientSession() as session:
+        async with session.post(url, json=payload, headers=headers) as resp:
+            if resp.status != 200:
+                raise Exception(f"TTS failed: {resp.status} - {await resp.text()}")
+            with open(output_path, "wb") as f:
+                f.write(await resp.read())
 
 
 _model = None
@@ -197,6 +215,9 @@ async def transcribe_audio_async(audio_path):
     model = get_whisper_model()
     segments, info = model.transcribe(audio_path, beam_size=1)
     full_text = "".join(segment.text for segment in segments).strip()
+
+    logger.info(f"Transcription result: {full_text}")
+
     return {
         "text": full_text,
         "language": info.language,

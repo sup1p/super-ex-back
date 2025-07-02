@@ -14,6 +14,10 @@ import os
 import re
 import tempfile
 from edge_tts.exceptions import NoAudioReceived
+from dotenv import load_dotenv
+
+load_dotenv()
+
 
 from ..services.voice import (
     IntentAgent,
@@ -95,6 +99,7 @@ async def handle_voice_websocket(websocket: WebSocket):
     await websocket.accept()
     last_text = ""
     user_tabs = []
+    logger = logging.getLogger(__name__)
 
     try:
         while True:
@@ -103,64 +108,70 @@ async def handle_voice_websocket(websocket: WebSocket):
                 audio_bytes = msg["bytes"]
 
                 if not audio_bytes:
+                    logger.info("Пустой аудиофайл получен, пропуск.")
                     continue
 
-                print("Audio received")
+                logger.info("Audio received")
 
                 with tempfile.NamedTemporaryFile(delete=False, suffix=".webm") as f:
                     f.write(audio_bytes)
                     audio_path = f.name
 
-                result = await transcribe_audio_async(audio_path)
+                logger.info("Calling transcribe_audio_async")
+                try:
+                    result = await transcribe_audio_async(audio_path)
+                except Exception as e:
+                    logger.error(f"Error in transcribe_audio_async: {e}", exc_info=True)
+                    continue
+                logger.info("transcribe_audio_async finished")
                 os.remove(audio_path)
                 text = result.get("text", "").strip()
 
-                print(f"Transcribed text: {text}")
+                logger.info(f"Transcribed text: {text}")
 
                 if not is_valid_text(text):
-                    print(f"Пропускаем бессмысленный текст: {text}")
+                    logger.info(f"Пропускаем бессмысленный текст: {text}")
                     continue
 
                 lang = result.get("language", "en")
                 intent = await IntentAgent.detect_intent(text)
+                logger.info(f"Detected intent: {intent}")
 
                 lang = result.get("language", "en")
 
                 if intent == "command":
-                    cmd = await ActionAgent.handle_command(
-                        text, lang, user_tabs
-                    )
-                    print(f"AI responded with command: {cmd}")
+                    cmd = await ActionAgent.handle_command(text, lang, user_tabs)
+                    logger.info(f"AI responded with command: {cmd}")
                     await websocket.send_json({"command": cmd})
                     continue
                 elif intent == "media":
                     cmd = await MediaAgent.handle_media_command(text, lang)
-                    print(f"AI responded with media command: {cmd}")
+                    logger.info(f"AI responded with media command: {cmd}")
                     await websocket.send_json(cmd)
                     continue
                 elif intent == "question":
                     answer = await ActionAgent.handle_question(text, lang)
-                    print(f"AI responded with default answer: {answer}")
+                    logger.info(f"AI responded with default answer: {answer}")
                 elif intent == "generate_text":
                     result = await TextGenerationAgent.handle_generate_text(text, lang)
-                    print(f"AI generated text or note: {result}")
+                    logger.info(f"AI generated text or note: {result}")
                     await websocket.send_json(result)
                     continue
                 else:
                     answer = "Пожалуйста, повторите команду."
-                    print("AI could not understand request")
+                    logger.info("AI could not understand request")
 
-                voice = voice_map.get(lang, "en-US-GuyNeural")
+                voice = os.getenv("ELEVEN_LABS_VOICE_ID")
                 with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as f:
                     tts_path = f.name
                 try:
                     await synthesize_speech_async(answer, voice, tts_path)
                 except NoAudioReceived:
                     answer = "Ошибка синтеза речи: не удалось получить аудио. Попробуйте другой язык или переформулируйте запрос."
-                    print("[TTS] No audio received from edge_tts.")
+                    logger.error("[TTS] No audio received from edge_tts.")
                     audio_b64 = ""
                 except Exception as tts_e:
-                    logging.error(f"TTS error: {tts_e}", exc_info=True)
+                    logger.error(f"TTS error: {tts_e}", exc_info=True)
                     answer = f"Ошибка синтеза речи: {tts_e}"
                     audio_b64 = ""
                 else:
@@ -171,20 +182,23 @@ async def handle_voice_websocket(websocket: WebSocket):
                 await websocket.send_json(
                     {"text": answer, "language": lang, "audio_base64": audio_b64}
                 )
+                logger.info(f"Sent TTS response for text: {answer}")
 
             elif "text" in msg:
                 try:
                     parsed = json.loads(msg["text"])
                     if isinstance(parsed, dict) and "tabs" in parsed:
                         user_tabs = parsed["tabs"]
+                        logger.info(f"Received user tabs: {user_tabs}")
                 except json.JSONDecodeError:
-                    pass
+                    logger.error("Failed to decode JSON from text message.")
 
     except WebSocketDisconnect:
+        logger.info("WebSocket disconnected by client.")
         pass
     except Exception as e:
-        logging.error(f"WebSocket error: {e}", exc_info=True)
+        logger.error(f"WebSocket error: {e}", exc_info=True)
         try:
             await websocket.close(code=1011, reason="Server error")
         except:
-            pass
+            logger.error("Failed to close websocket after error.")

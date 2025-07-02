@@ -15,6 +15,12 @@ from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel
 import os
 from dotenv import load_dotenv
+import logging
+
+logging.basicConfig(
+    level=logging.INFO,  # или DEBUG для подробных логов
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+)
 
 load_dotenv()
 

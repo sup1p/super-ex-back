@@ -82,12 +82,14 @@ async def get_all_messages(
 @router.websocket("/chat/websocket")
 async def websocket_chat(websocket: WebSocket):
     await websocket.accept()
-    print("WebSocket чат соединение установлено")
+    logger = logging.getLogger(__name__)
+    logger.info("WebSocket чат соединение установлено")
     # Получаем токен из query params (например: ws://.../chat/send?token=...)
     token = websocket.query_params.get("token")
     if not token:
         await websocket.send_json({"error": "No token provided"})
         await websocket.close()
+        logger.error("WebSocket закрыт: не передан токен.")
         return
     # Получаем пользователя по токену
     async with AsyncSessionLocal() as db:
@@ -97,23 +99,26 @@ async def websocket_chat(websocket: WebSocket):
             if not user_id:
                 await websocket.send_json({"error": "Invalid token"})
                 await websocket.close()
+                logger.error("WebSocket закрыт: некорректный токен (нет user_id).")
                 return
         except JWTError:
             await websocket.send_json({"error": "Invalid token"})
             await websocket.close()
+            logger.error("WebSocket закрыт: некорректный токен (JWTError).")
             return
         result = await db.execute(select(User).where(User.id == int(user_id)))
         user = result.scalar_one_or_none()
         if not user:
             await websocket.send_json({"error": "User not found"})
             await websocket.close()
+            logger.error(f"WebSocket закрыт: пользователь с id {user_id} не найден.")
             return
         chat_session = None
         first_message = None
         try:
             while True:
                 data = await websocket.receive_text()
-                print(f"Получено сообщение: {data}")
+                logger.info(f"Получено сообщение: {data}")
                 if chat_session is None:
                     # Получаем название чата от ИИ
                     prompt = f"Придумай короткое название для чата по этому сообщению. Ответь ТОЛЬКО ОДНИМ СЛОВОМ: {data}"
@@ -123,12 +128,14 @@ async def websocket_chat(websocket: WebSocket):
                     await db.commit()
                     await db.refresh(chat_session)
                     first_message = data
+                    logger.info(f"Создан новый чат с названием: {chat_name}")
                 # Сохраняем сообщение пользователя
                 user_msg = Message(
                     session_id=chat_session.id, role="user", content=data
                 )
                 db.add(user_msg)
                 await db.commit()
+                logger.info(f"Сохранено сообщение пользователя в чат {chat_session.id}")
                 # Получаем ответ от ИИ
                 ai_answer = await get_ai_answer(data)
                 # Сохраняем ответ ИИ
@@ -137,19 +144,19 @@ async def websocket_chat(websocket: WebSocket):
                 )
                 db.add(ai_msg)
                 await db.commit()
+                logger.info(f"Сохранён ответ ИИ в чат {chat_session.id}")
                 # Отправляем ответ пользователю
                 response = {"text": ai_answer}
                 await websocket.send_json(response)
-                print("Ответ отправлен успешно")
+                logger.info("Ответ отправлен успешно")
         except WebSocketDisconnect:
-            print("Клиент отключился от чата")
+            logger.info("Клиент отключился от чата")
         except Exception as e:
-            print(f"Ошибка WebSocket чата: {e}")
-            traceback.print_exc()
+            logger.error(f"Ошибка WebSocket чата: {e}", exc_info=True)
             try:
                 await websocket.close(code=1011, reason="Server error")
             except:
-                pass
+                logger.error("Не удалось закрыть WebSocket после ошибки.")
 
 
 @router.websocket("/websocket-voice")
