@@ -86,6 +86,7 @@ async def websocket_chat(websocket: WebSocket):
     logger.info("WebSocket чат соединение установлено")
     # Получаем токен из query params (например: ws://.../chat/send?token=...)
     token = websocket.query_params.get("token")
+    chat_id = websocket.query_params.get("chat_id")
     if not token:
         await websocket.send_json({"error": "No token provided"})
         await websocket.close()
@@ -114,6 +115,25 @@ async def websocket_chat(websocket: WebSocket):
             logger.error(f"WebSocket закрыт: пользователь с id {user_id} не найден.")
             return
         chat_session = None
+        if chat_id:
+            result = await db.execute(
+                select(ChatSession).where(
+                    (ChatSession.id == int(chat_id)) & (ChatSession.user_id == user.id)
+                )
+            )
+            chat_session = result.scalars().first()
+            if not chat_session:
+                await websocket.send_json({"error": "Chat not found"})
+                await websocket.close()
+                return
+        if chat_id and chat_session:
+            # Если пользователь подключился к существующему чату, отправим историю сообщений
+            messages_result = await db.execute(
+                select(Message).where(Message.session_id == chat_session.id)
+            )
+            messages = messages_result.scalars().all()
+            history = [{"role": msg.role, "content": msg.content} for msg in messages]
+            await websocket.send_json({"history": history})
         first_message = None
         try:
             while True:
