@@ -67,6 +67,28 @@ async def send_confirmation_email(email: str, token: str):
     )
 
 
+async def send_change_pass_confirmation_email(email: str, token: str):
+    confirm_url = f"{FRONTEND_URL}/confirm-password?token={token}"
+
+    message = EmailMessage()
+    message["From"] = SMTP_USER
+    message["To"] = email
+    message["Subject"] = "Смена пароля"
+    message.set_content(
+        f"Здравствуйте!\n\nДля смены пароля перейдите по ссылке:\n{confirm_url}\n\n"
+        "Если вы не пытались поменять пароль, просто проигнорируйте это письмо."
+    )
+
+    await send(
+        message,
+        hostname=SMTP_HOST,
+        port=SMTP_PORT,
+        username=SMTP_USER,
+        password=SMTP_PASS,
+        start_tls=True,
+    )
+
+
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 ALGORITHM = "HS256"
 

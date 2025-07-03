@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
+from sqlalchemy import select, delete
 
-from app.models import User
+from app.models import User, PendingUser
 from app.schemas import RegisterRequest
 
 from app.core.dependencies import get_db, AsyncSession
@@ -11,6 +11,7 @@ from app.core.security import (
     send_confirmation_email,
     hash_password,
 )
+from datetime import datetime, timedelta
 
 
 router = APIRouter()
@@ -23,6 +24,24 @@ async def pre_register(data: RegisterRequest, db: AsyncSession = Depends(get_db)
     if user:
         raise HTTPException(status_code=400, detail="Email уже используется")
 
+    result = await db.execute(
+        select(PendingUser).where(PendingUser.email == data.email)
+    )
+    pending = result.scalars().first()
+    if pending:
+        raise HTTPException(
+            status_code=400, detail="Письмо уже отправлено, проверьте почту"
+        )
+
+    pending = PendingUser(
+        email=data.email,
+        name=data.name,
+        hashed_password=hash_password(data.password),
+        created_at=datetime.utcnow(),
+    )
+
+    db.add(pending)
+    await db.commit()
     # создаём токен с именем, email и хешированным паролем
     payload = {
         "name": data.name,
@@ -56,6 +75,7 @@ async def confirm_registration(token: str, db: AsyncSession = Depends(get_db)):
     )
 
     db.add(user)
+    await db.execute(delete(PendingUser).where(PendingUser.email == email))
     await db.commit()
     await db.refresh(user)
 
@@ -63,8 +83,18 @@ async def confirm_registration(token: str, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/auth/resend", tags=["smtp"])
-async def resend_confirmation(email: str):
-    # Поиск по временной сессии/памяти не нужен — просто повторно шлём
-    token = generate_email_token({"email": email})
+async def resend_confirmation(email: str, db: AsyncSession = Depends(get_db)):
+    result = db.execute(select(PendingUser).where(PendingUser.email == email))
+    pending = result.scalars().first()
+    if not pending:
+        raise HTTPException(status_code=404, detail="No such a pending user")
+
+    payload = {
+        "name": pending.name,
+        "email": pending.email,
+        "hashed_password": pending.hashed_password,
+    }
+
+    token = generate_email_token(payload)
     await send_confirmation_email(email, token)
     return {"message": "Письмо повторно отправлено"}

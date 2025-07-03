@@ -2,6 +2,15 @@ from pydantic import BaseModel, EmailStr
 from datetime import datetime
 
 
+class ForgotPasswordRequest(BaseModel):
+    email: str
+
+
+class ChangePasswordRequest(BaseModel):
+    new_password: str
+    token: str
+
+
 class ChatSessionRead(BaseModel):
     id: int
     created_at: datetime

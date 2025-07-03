@@ -97,7 +97,6 @@ CMD_JSON_RE = re.compile(r"^\s*\{.*\}\s*$", re.S)  # грубая проверк
 
 async def handle_voice_websocket(websocket: WebSocket):
     await websocket.accept()
-    last_text = ""
     user_tabs = []
     logger = logging.getLogger(__name__)
 
@@ -142,7 +141,27 @@ async def handle_voice_websocket(websocket: WebSocket):
                 if intent == "command":
                     cmd = await ActionAgent.handle_command(text, lang, user_tabs)
                     logger.info(f"AI responded with command: {cmd}")
-                    await websocket.send_json({"command": cmd})
+                    answer = cmd.get("answer", "")
+                    # --- синтезируем озвучку для answer ---
+                    voice = os.getenv("ELEVEN_LABS_VOICE_ID")
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as f:
+                        tts_path = f.name
+                    try:
+                        await synthesize_speech_async(answer, voice, tts_path)
+                    except Exception as tts_e:
+                        logger.error(f"TTS error: {tts_e}", exc_info=True)
+                        audio_b64 = ""
+                    else:
+                        with open(tts_path, "rb") as f:
+                            audio_b64 = base64.b64encode(f.read()).decode()
+                        os.remove(tts_path)
+                    response_json = {
+                        "answer": answer,
+                        "audio_base64": audio_b64,
+                        "command": cmd,
+                    }
+                    logger.info(f"Sending command response JSON: {response_json}")
+                    await websocket.send_json(response_json)
                     continue
                 elif intent == "media":
                     cmd = await MediaAgent.handle_media_command(text, lang)
@@ -155,7 +174,29 @@ async def handle_voice_websocket(websocket: WebSocket):
                 elif intent == "generate_text":
                     result = await TextGenerationAgent.handle_generate_text(text, lang)
                     logger.info(f"AI generated text or note: {result}")
-                    await websocket.send_json(result)
+                    note_cmd = result.get("command", {})
+                    answer = note_cmd.get("answer", "") if note_cmd else ""
+                    # --- синтезируем озвучку для answer ---
+                    voice = os.getenv("ELEVEN_LABS_VOICE_ID")
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as f:
+                        tts_path = f.name
+                    try:
+                        await synthesize_speech_async(answer, voice, tts_path)
+                    except Exception as tts_e:
+                        logger.error(f"TTS error: {tts_e}", exc_info=True)
+                        audio_b64 = ""
+                    else:
+                        with open(tts_path, "rb") as f:
+                            audio_b64 = base64.b64encode(f.read()).decode()
+                        os.remove(tts_path)
+                    response_json = {
+                        "answer": answer,
+                        "audio_base64": audio_b64,
+                        **result,
+                    }
+                    logger.info(f"Sending generate_text response JSON: {response_json}")
+                    await websocket.send_json(response_json)
+                    logger.info("New note created with voice!!!")
                     continue
                 else:
                     answer = "Пожалуйста, повторите команду."

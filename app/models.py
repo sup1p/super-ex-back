@@ -22,6 +22,15 @@ class User(Base):
     )
 
 
+class PendingUser(Base):
+    __tablename__ = "pending_users"
+
+    email = Column(String, primary_key=True, index=True)
+    name = Column(String, nullable=False)
+    hashed_password = Column(String, nullable=False)
+    created_at = Column(DateTime, default=datetime.now)
+
+
 class Notes(Base):
     __tablename__ = "notes"
 

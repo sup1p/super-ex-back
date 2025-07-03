@@ -76,10 +76,7 @@ class IntentAgent:
 
         Input: \"{text}\"
         """
-        print(f"[IntentAgent] Input: {text}")
-        print(f"[IntentAgent] Prompt: {prompt}")
         response = await get_ai_answer(prompt)
-        print(f"[IntentAgent] Output: {response}")
         return response.strip().lower()
 
 
@@ -87,10 +84,7 @@ class ActionAgent:
     @staticmethod
     async def handle_command(text: str, lang: str, tabs: list[dict]) -> dict:
         prompt = build_prompt(text, lang, tabs)
-        print(f"[ActionAgent] Input: {text}, lang: {lang}, tabs: {tabs}")
-        print(f"[ActionAgent] Prompt: {prompt}")
         response = await get_ai_answer(prompt)
-        print(f"[ActionAgent] Output: {response}")
         match = CMD_JSON_RE.search(response)
         if match:
             json_str = match.group(0)
@@ -110,10 +104,7 @@ class ActionAgent:
         Question:
         {text}
         """
-        print(f"[ActionAgent] Input (question): {text}, lang: {lang}")
-        print(f"[ActionAgent] Prompt (question): {prompt}")
         response = await get_ai_answer(prompt)
-        print(f"[ActionAgent] Output (question): {response}")
         return response
 
 
@@ -124,7 +115,7 @@ def build_prompt(user_text: str, lang: str, tabs: list[dict]) -> str:
         tabs_description_parts.append(
             f"- Tab {tab['index']}: {tab['url']}{active_status}"
         )
-    tabs_description = "\\n".join(tabs_description_parts)
+    tabs_description = "\n".join(tabs_description_parts)
 
     rules = f"""
         You are a multilingual voice assistant in a browser extension.
@@ -152,7 +143,6 @@ def build_prompt(user_text: str, lang: str, tabs: list[dict]) -> str:
         5. Search on the web (e.g., Google, YouTube):
         {{ "action": "open_url", "url": "https://www.google.com/search?q=some+search+query" }}
 
-
         RULES:
         - For "switch_tab" or "close_tab" (single), find the tab that best matches the user's keywords (e.g., "YouTube", "чатжпт") in the URL and return its index.
         - For "close_tab" with multiple tabs:
@@ -167,9 +157,12 @@ def build_prompt(user_text: str, lang: str, tabs: list[dict]) -> str:
         - User input: "включи видео с котятами на ютуб" -> {{ "action": "open_url", "url": "https://www.youtube.com/results?search_query=видео+с+котятами" }}
         - User input: "найди рецепт борща" -> {{ "action": "open_url", "url": "https://www.google.com/search?q=рецепт+борща" }}
         
-        If user input is unclear — respond in user language: "Please repeat yologger = logging.getLogger(__name__)ur command".
+        If user input is unclear — respond in user language: "Please repeat your command".
 
         - JSON must be strict and in English only. DO NOT add any text or comments outside the JSON.
+
+        --- ОТЧЕТ ДЛЯ ПОЛЬЗОВАТЕЛЯ ---
+        In addition to the required fields, ALWAYS add a field "answer" (in the same JSON), where you briefly and clearly report to the user in their language what you did (for example: 'Я открыла сайт: youtube.com', 'Я закрыла вкладку 2', etc.).
 
         USER INPUT:
         "{user_text}"
@@ -317,10 +310,7 @@ If the request is unclear or not related to media, respond:
 User language: {lang}
 User input: "{text}"
 """
-        print(f"[MediaAgent] Input: {text}, lang: {lang}")
-        print(f"[MediaAgent] Prompt: {prompt}")
         response = await get_ai_answer(prompt)
-        print(f"[MediaAgent] Output: {response}")
         match = CMD_JSON_RE.search(response)
         if match:
             json_str = match.group(0)
@@ -340,7 +330,8 @@ class TextGenerationAgent:
           "command": {{
             "action": "create_note",
             "title": "<short title or topic, 2-3 words>",
-            "text": "<main text, full response>"
+            "text": "<main text, full response>",
+            "answer": "<short report for the user in their language, e.g. 'Я создала заметку: Покормить кота'>"
           }}
         }}
 
@@ -350,21 +341,19 @@ class TextGenerationAgent:
         - Do not add any comments, explanations, or text outside the JSON.
         - Always return only JSON in the specified format.
         - The response language must match the user's language.
+        - ALWAYS add a field "answer" (in the same JSON), where you briefly and clearly report to the user in their language what you did (for example: 'Я создала заметку: Покормить кота').
 
         Examples:
-        User: "Create a note: buy bread and milk" → {{"command": {{"action": "create_note", "title": "Shopping List", "text": "Buy bread and milk"}}}}
-        User: "Write an essay about space" → {{"command": {{"action": "create_note", "title": "Space", "text": "<essay about space>"}}}}
-        User: "Make a summary on Russian history" → {{"command": {{"action": "create_note", "title": "Russian History", "text": "<summary>"}}}}
-        User: "Create a story about a cat" → {{"command": {{"action": "create_note", "title": "Cat Story", "text": "<story>"}}}}
-        User: "Note: call mom tomorrow" → {{"command": {{"action": "create_note", "title": "Call Mom", "text": "Call mom tomorrow"}}}}
+        User: "Create a note: buy bread and milk" → {{"command": {{"action": "create_note", "title": "Shopping List", "text": "Buy bread and milk", "answer": "Я создала заметку: Список покупок"}}}}
+        User: "Write an essay about space" → {{"command": {{"action": "create_note", "title": "Space", "text": "<essay about space>", "answer": "Я создала заметку: Космос"}}}}
+        User: "Make a summary on Russian history" → {{"command": {{"action": "create_note", "title": "Russian History", "text": "<summary>", "answer": "Я создала заметку: История России"}}}}
+        User: "Create a story about a cat" → {{"command": {{"action": "create_note", "title": "Cat Story", "text": "<story>", "answer": "Я создала заметку: История кота"}}}}
+        User: "Note: call mom tomorrow" → {{"command": {{"action": "create_note", "title": "Call Mom", "text": "Call mom tomorrow", "answer": "Я создала заметку: Позвонить маме"}}}}
 
         User language: {lang}
         User request: "{text}"
         """
-        print(f"[TextGenerationAgent] Input: {text}, lang: {lang}")
-        print(f"[TextGenerationAgent] Prompt: {prompt}")
         response = await get_ai_answer(prompt)
-        print(f"[TextGenerationAgent] Output: {response}")
         # Try to parse as note command, otherwise return as plain text
         match = CMD_JSON_RE.search(response)
         if match:
