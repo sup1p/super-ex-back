@@ -72,6 +72,8 @@ class IntentAgent:
 
         User: "search for how to cook pasta" → command
         User: "какая погода?" → question
+        User: "Какие новости в Казахстане?" → question
+        User: "Что делать если сломал ногу?" → question
         User: "спасибо" → noise
         User: "Напиши эссе о космосе" → generate_text
         User: "Сделай реферат по истории" → generate_text
@@ -80,7 +82,7 @@ class IntentAgent:
 
         Input: \"{text}\"
         """
-        response = await get_ai_answer(prompt)
+        response = await get_35_ai_answer(prompt)
         return response.strip().lower()
 
 
@@ -88,7 +90,7 @@ class ActionAgent:
     @staticmethod
     async def handle_command(text: str, lang: str, tabs: list[dict]) -> dict:
         prompt = build_prompt(text, lang, tabs)
-        response = await get_ai_answer(prompt)
+        response = await get_35_ai_answer(prompt)
         match = CMD_JSON_RE.search(response)
         if match:
             json_str = match.group(0)
@@ -108,7 +110,7 @@ class ActionAgent:
         Question:
         {text}
         """
-        response = await get_ai_answer(prompt)
+        response = await get_35_ai_answer(prompt)
         return response
 
 
@@ -342,7 +344,7 @@ If the request is unclear or not related to media, respond:
 User language: {lang}
 User input: "{text}"
 """
-        response = await get_ai_answer(prompt)
+        response = await get_35_ai_answer(prompt)
         match = CMD_JSON_RE.search(response)
         if match:
             json_str = match.group(0)
