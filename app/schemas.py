@@ -2,6 +2,10 @@ from pydantic import BaseModel, EmailStr
 from datetime import datetime
 
 
+class EmailSchema(BaseModel):
+    email: str
+
+
 class ForgotPasswordRequest(BaseModel):
     email: str
 

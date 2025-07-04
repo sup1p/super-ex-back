@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select, delete
 
 from app.models import User, PendingUser
-from app.schemas import RegisterRequest
+from app.schemas import RegisterRequest, EmailSchema
 
 from app.core.dependencies import get_db, AsyncSession
 from app.core.security import (
@@ -33,15 +33,6 @@ async def pre_register(data: RegisterRequest, db: AsyncSession = Depends(get_db)
             status_code=400, detail="Письмо уже отправлено, проверьте почту"
         )
 
-    pending = PendingUser(
-        email=data.email,
-        name=data.name,
-        hashed_password=hash_password(data.password),
-        created_at=datetime.utcnow(),
-    )
-
-    db.add(pending)
-    await db.commit()
     # создаём токен с именем, email и хешированным паролем
     payload = {
         "name": data.name,
@@ -51,6 +42,17 @@ async def pre_register(data: RegisterRequest, db: AsyncSession = Depends(get_db)
     token = generate_email_token(payload)
 
     await send_confirmation_email(data.email, token)
+
+    pending = PendingUser(
+        email=data.email,
+        name=data.name,
+        hashed_password=hash_password(data.password),
+        created_at=datetime.utcnow(),
+    )
+
+    db.add(pending)
+    await db.commit()
+
     return {"message": "Письмо с подтверждением отправлено"}
 
 
@@ -83,8 +85,9 @@ async def confirm_registration(token: str, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/auth/resend", tags=["smtp"])
-async def resend_confirmation(email: str, db: AsyncSession = Depends(get_db)):
-    result = db.execute(select(PendingUser).where(PendingUser.email == email))
+async def resend_confirmation(data: EmailSchema, db: AsyncSession = Depends(get_db)):
+    email = data.email
+    result = await db.execute(select(PendingUser).where(PendingUser.email == email))
     pending = result.scalars().first()
     if not pending:
         raise HTTPException(status_code=404, detail="No such a pending user")
