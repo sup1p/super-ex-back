@@ -33,7 +33,9 @@ async def init_models() -> None:
 
 
 # ────────────────────────────── FastAPI ────────────────────────────────────────
-app = FastAPI(title="Browser‑AI Backend")
+app = FastAPI(
+    title="Browser‑AI Backend", docs_url=None, redoc_url=None, openapi_url=None
+)
 
 app.add_middleware(
     CORSMiddleware,
