@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 router = APIRouter()
 
 
-@router.post("/user/pre-forgot-password")
+@router.post("/user/pre-forgot-password", tags=["User"])
 async def pre_forgot_password(
     data: ForgotPasswordRequest, db: AsyncSession = Depends(get_db)
 ):
@@ -31,7 +31,7 @@ async def pre_forgot_password(
     return {"message": "Письмо с подтверждением отправлено"}
 
 
-@router.post("/user/pre-change-password")
+@router.post("/user/pre-change-password", tags=["User"])
 async def pre_change_password(
     db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)
 ):
@@ -47,7 +47,7 @@ async def pre_change_password(
     return {"message": "Письмо с подтверждением отправлено"}
 
 
-@router.post("/user/change-password")
+@router.post("/user/change-password", tags=["User"])
 async def change_password(
     data: ChangePasswordRequest,
     db: AsyncSession = Depends(get_db),
@@ -67,7 +67,7 @@ async def change_password(
     return "Password successfully changed"
 
 
-@router.post("/user/change-password/resend")
+@router.post("/user/change-password/resend", tags=["User"])
 async def resend_change_password(email: str, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(User).where(User.email == email))
     user = result.scalars().first()

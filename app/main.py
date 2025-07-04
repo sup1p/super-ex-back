@@ -37,7 +37,7 @@ app = FastAPI(title="Browser‑AI Backend")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # ⚠️ В проде укажи домены
+    allow_origins=["chrome-extension://ibkkolnhabfjiggngeedojohemhkddjk"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
