@@ -10,6 +10,10 @@ CMD_JSON_RE = re.compile(r"\{.*\}", re.S)
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 GEMINI_URL = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}"
+AZURE_OPENAI_KEY = os.getenv("AZURE_OPENAI_KEY")
+AZURE_OPENAI_ENDPOINT = os.getenv("AZURE_OPENAI_ENDPOINT")
+AZURE_DEPLOYMENT_NAME = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME")
+
 
 logger = logging.getLogger(__name__)
 
@@ -235,6 +239,34 @@ async def get_ai_answer(question: str):
         return "Внешний сервис не ответил вовремя (таймаут). Попробуйте позже."
     except Exception as e:
         return f"Ошибка обращения к ИИ: {e}"
+
+
+async def get_35_ai_answer(question: str):
+    url = f"{AZURE_OPENAI_ENDPOINT}"
+    headers = {
+        "Content-Type": "application/json",
+        "api-key": AZURE_OPENAI_KEY,
+    }
+    payload = {
+        "messages": [
+            {"role": "system", "content": "Ты полезный ассистент."},
+            {"role": "user", "content": question},
+        ],
+        "temperature": 0.7,
+        "max_tokens": 1000,
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            response = await client.post(url, headers=headers, json=payload)
+            response.raise_for_status()
+            data = response.json()
+            return data["choices"][0]["message"]["content"].strip()
+    except httpx.ReadTimeout:
+        return "Сервер GPT-3.5 не ответил вовремя (таймаут)."
+    except Exception as e:
+        logger.error(f"Ошибка обращения к GPT-3.5: {e}")
+        return
 
 
 class MediaAgent:

@@ -24,17 +24,6 @@ async def summarize_webpage(
     return await summarize.summarize_text_full(summary_request.text, 2000)
 
 
-# @router.get("/tool/translate", tags=["Tools"])
-# async def get_all_notes(
-#     db: AsyncSession = Depends(get_db),
-#     current_user: User = Depends(get_current_user),
-# ):
-#     notes = await db.execute(select(Notes).where(Notes.user_id == current_user.id))
-#     if notes is None:
-#         return []
-#     return notes.scalars().all()
-
-
 # @router.get("/tools/simplify/{note_id}", tags=["Tools"])
 # async def get_note(
 #     note_id: int,

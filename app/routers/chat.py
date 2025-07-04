@@ -13,7 +13,7 @@ from app.core.dependencies import (
     handle_voice_websocket,
 )
 from app.core.config import settings
-from app.services.voice import get_ai_answer
+from app.services.voice import get_ai_answer, get_35_ai_answer
 
 from jose import JWTError, jwt
 from typing import List
@@ -157,7 +157,7 @@ async def websocket_chat(websocket: WebSocket):
                 await db.commit()
                 logger.info(f"Сохранено сообщение пользователя в чат {chat_session.id}")
                 # Получаем ответ от ИИ
-                ai_answer = await get_ai_answer(data)
+                ai_answer = await get_35_ai_answer(data)
                 # Сохраняем ответ ИИ
                 ai_msg = Message(
                     session_id=chat_session.id, role="assistant", content=ai_answer
