@@ -11,13 +11,18 @@ from app.core.dependencies import (
     get_db,
     get_current_user,
     handle_voice_websocket,
+    handle_web_search,
 )
 from app.core.config import settings
-from app.services.voice import get_ai_answer, get_35_ai_answer
+from app.services.voice import (
+    get_ai_answer,
+    get_35_ai_answer,
+    needs_web_search,
+    process_web_search_results,
+)
 
 from jose import JWTError, jwt
 from typing import List
-import traceback
 import logging
 
 logger = logging.getLogger(__name__)
@@ -156,8 +161,25 @@ async def websocket_chat(websocket: WebSocket):
                 db.add(user_msg)
                 await db.commit()
                 logger.info(f"Сохранено сообщение пользователя в чат {chat_session.id}")
-                # Получаем ответ от ИИ
-                ai_answer = await get_35_ai_answer(data)
+
+                # Проверяем, нужен ли веб-поиск для ответа
+                needs_search, search_query = await needs_web_search(data)
+
+                if needs_search and search_query:
+                    logger.info(f"Требуется веб-поиск для запроса: {search_query}")
+                    # Отправляем промежуточное сообщение о поиске
+                    await websocket.send_json(
+                        {"text": "Ищу актуальную информацию...", "searching": True}
+                    )
+
+                    # Выполняем поиск и обрабатываем результаты
+                    ai_answer = await process_web_search_results(search_query, data)
+                    logger.info(f"Получен ответ на основе веб-поиска: {ai_answer}")
+                else:
+                    # Получаем обычный ответ от ИИ
+                    ai_answer = await get_35_ai_answer(data)
+                    logger.info(f"Получен обычный ответ от ИИ: {ai_answer}")
+
                 # Сохраняем ответ ИИ
                 ai_msg = Message(
                     session_id=chat_session.id, role="assistant", content=ai_answer

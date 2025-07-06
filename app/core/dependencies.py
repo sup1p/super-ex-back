@@ -16,9 +16,6 @@ import tempfile
 from edge_tts.exceptions import NoAudioReceived
 from dotenv import load_dotenv
 
-load_dotenv()
-
-
 from ..services.voice import (
     IntentAgent,
     ActionAgent,
@@ -26,7 +23,12 @@ from ..services.voice import (
     TextGenerationAgent,
     synthesize_speech_async,
     transcribe_audio_async,
+    needs_web_search,
+    process_web_search_results,
 )
+
+import requests
+import aiohttp
 
 load_dotenv()
 
@@ -142,19 +144,27 @@ async def handle_voice_websocket(websocket: WebSocket):
                     cmd = await ActionAgent.handle_command(text, lang, user_tabs)
                     logger.info(f"AI responded with command: {cmd}")
                     answer = cmd.get("answer", "")
-                    # --- синтезируем озвучку для answer ---
-                    voice = os.getenv("ELEVEN_LABS_VOICE_ID")
-                    with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as f:
-                        tts_path = f.name
-                    try:
-                        await synthesize_speech_async(answer, voice, tts_path)
-                    except Exception as tts_e:
-                        logger.error(f"TTS error: {tts_e}", exc_info=True)
-                        audio_b64 = ""
-                    else:
-                        with open(tts_path, "rb") as f:
-                            audio_b64 = base64.b64encode(f.read()).decode()
-                        os.remove(tts_path)
+
+                    # По умолчанию пустые значения
+                    audio_b64 = ""
+
+                    # Синтезируем озвучку только если есть ответ
+                    if len(answer) > 0:
+                        voice = os.getenv("ELEVEN_LABS_VOICE_ID")
+                        with tempfile.NamedTemporaryFile(
+                            delete=False, suffix=".mp3"
+                        ) as f:
+                            tts_path = f.name
+                        try:
+                            await synthesize_speech_async(answer, voice, tts_path)
+                        except Exception as tts_e:
+                            logger.error(f"TTS error: {tts_e}", exc_info=True)
+                            audio_b64 = ""
+                        else:
+                            with open(tts_path, "rb") as f:
+                                audio_b64 = base64.b64encode(f.read()).decode()
+                            os.remove(tts_path)
+
                     response_json = {
                         "answer": answer,
                         "audio_base64": audio_b64,
@@ -169,8 +179,20 @@ async def handle_voice_websocket(websocket: WebSocket):
                     await websocket.send_json(cmd)
                     continue
                 elif intent == "question":
-                    answer = await ActionAgent.handle_question(text, lang)
-                    logger.info(f"AI responded with default answer: {answer}")
+                    # Проверяем, нужен ли веб-поиск для ответа
+                    needs_search, search_query = await needs_web_search(text)
+
+                    if needs_search and search_query:
+                        logger.info(f"Требуется веб-поиск для запроса: {search_query}")
+                        # Выполняем поиск и обрабатываем результаты
+                        answer = await process_web_search_results(
+                            search_query, text, lang
+                        )
+                        logger.info(f"Получен ответ на основе веб-поиска: {answer}")
+                    else:
+                        # Получаем обычный ответ от ИИ
+                        answer = await ActionAgent.handle_question(text, lang)
+                        logger.info(f"AI responded with default answer: {answer}")
                 elif intent == "generate_text":
                     result = await TextGenerationAgent.handle_generate_text(text, lang)
                     logger.info(f"AI generated text or note: {result}")
@@ -243,3 +265,18 @@ async def handle_voice_websocket(websocket: WebSocket):
             await websocket.close(code=1011, reason="Server error")
         except:
             logger.error("Failed to close websocket after error.")
+
+
+async def handle_web_search(query: str):
+    url = "https://google.serper.dev/search"
+
+    payload = json.dumps({"q": query})
+
+    headers = {
+        "X-API-KEY": os.getenv("SERPER_API_KEY"),
+        "Content-Type": "application/json",
+    }
+
+    async with aiohttp.ClientSession() as session:
+        async with session.post(url, headers=headers, data=payload) as response:
+            return await response.json()

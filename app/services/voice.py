@@ -5,6 +5,7 @@ import httpx
 import os
 from faster_whisper import WhisperModel
 import logging
+import asyncio
 
 CMD_JSON_RE = re.compile(r"\{.*\}", re.S)
 
@@ -68,7 +69,7 @@ class IntentAgent:
         User: "открой ютуб" → command
         User: "закрой вкладку" → command
         User: "найди видео с котиками" → command
-        User: "включи видео про dota 2" → commandimport aiohttp
+        User: "включи видео про dota 2" → command
 
         User: "search for how to cook pasta" → command
         User: "какая погода?" → question
@@ -160,8 +161,10 @@ def build_prompt(user_text: str, lang: str, tabs: list[dict]) -> str:
         {{ "action": "noop" }}
         
         EXAMPLES:
-        - User input: "включи видео с котятами на ютуб" -> {{ "action": "open_url", "url": "https://www.youtube.com/results?search_query=видео+с+котятами" }}
+        - User input: "включи(или открой, или найди, или покажи) видео с котятами на ютуб" -> {{ "action": "open_url", "url": "https://www.youtube.com/results?search_query=видео+с+котятами" }}
         - User input: "найди рецепт борща" -> {{ "action": "open_url", "url": "https://www.google.com/search?q=рецепт+борща" }}
+        
+        Examples is just examples, user can say whatever he want, but meaning can remain the same !
         
         If user input is unclear — respond in user language: "Please repeat your command".
 
@@ -226,21 +229,59 @@ async def transcribe_audio_async(audio_path):
 async def get_ai_answer(question: str):
     payload = {"contents": [{"role": "user", "parts": [{"text": question}]}]}
     headers = {"Content-Type": "application/json"}
-    try:
-        async with httpx.AsyncClient(timeout=15) as client:
-            response = await client.post(GEMINI_URL, json=payload, headers=headers)
-            response.raise_for_status()
-            data = response.json()
-            try:
-                text_answer = data["candidates"][0]["content"]["parts"][0]["text"]
-            except (KeyError, IndexError):
-                text_answer = "Что-то пошло не так"
-            clean_text = text_answer.replace("\n", "").strip()
-            return clean_text
-    except httpx.ReadTimeout:
-        return "Внешний сервис не ответил вовремя (таймаут). Попробуйте позже."
-    except Exception as e:
-        return f"Ошибка обращения к ИИ: {e}"
+    # Retry configuration
+    max_retries = 3
+    base_delay = 1.0  # seconds
+
+    for attempt in range(max_retries):
+        try:
+            # Create a new client for each attempt to avoid connection issues
+            async with httpx.AsyncClient(
+                timeout=15,
+                limits=httpx.Limits(max_keepalive_connections=1, max_connections=1),
+                http2=False,  # Disable HTTP/2 to avoid potential issues
+            ) as client:
+                response = await client.post(GEMINI_URL, json=payload, headers=headers)
+                response.raise_for_status()
+                data = response.json()
+                try:
+                    text_answer = data["candidates"][0]["content"]["parts"][0]["text"]
+                except (KeyError, IndexError):
+                    text_answer = "Что-то пошло не так"
+                clean_text = text_answer.replace("\n", "").strip()
+                return clean_text
+
+        except httpx.ReadTimeout:
+            logger.warning(f"Gemini timeout on attempt {attempt + 1}/{max_retries}")
+            if attempt == max_retries - 1:
+                return "Внешний сервис не ответил вовремя (таймаут). Попробуйте позже."
+            await asyncio.sleep(base_delay * (2**attempt))  # Exponential backoff
+
+        except httpx.ConnectError as e:
+            logger.warning(
+                f"Gemini connection error on attempt {attempt + 1}/{max_retries}: {e}"
+            )
+            if attempt == max_retries - 1:
+                return "Ошибка подключения к сервису ИИ. Проверьте интернет-соединение."
+            await asyncio.sleep(base_delay * (2**attempt))
+
+        except httpx.HTTPStatusError as e:
+            logger.error(
+                f"Gemini HTTP error on attempt {attempt + 1}/{max_retries}: {e.response.status_code}"
+            )
+            if attempt == max_retries - 1:
+                return f"Ошибка сервера ИИ (код {e.response.status_code}). Попробуйте позже."
+            await asyncio.sleep(base_delay * (2**attempt))
+
+        except Exception as e:
+            logger.error(
+                f"Gemini unexpected error on attempt {attempt + 1}/{max_retries}: {e}"
+            )
+            if attempt == max_retries - 1:
+                return f"Ошибка обращения к ИИ: {e}"
+            await asyncio.sleep(base_delay * (2**attempt))
+
+    return "Ошибка обращения к ИИ. Попробуйте позже."
 
 
 async def get_35_ai_answer(question: str):
@@ -258,17 +299,54 @@ async def get_35_ai_answer(question: str):
         "max_tokens": 1000,
     }
 
-    try:
-        async with httpx.AsyncClient(timeout=15) as client:
-            response = await client.post(url, headers=headers, json=payload)
-            response.raise_for_status()
-            data = response.json()
-            return data["choices"][0]["message"]["content"].strip()
-    except httpx.ReadTimeout:
-        return "Сервер GPT-3.5 не ответил вовремя (таймаут)."
-    except Exception as e:
-        logger.error(f"Ошибка обращения к GPT-3.5: {e}")
-        return
+    # Retry configuration
+    max_retries = 3
+    base_delay = 1.0  # seconds
+
+    for attempt in range(max_retries):
+        try:
+            # Create a new client for each attempt to avoid connection issues
+            async with httpx.AsyncClient(
+                timeout=15,
+                limits=httpx.Limits(max_keepalive_connections=1, max_connections=1),
+                http2=False,  # Disable HTTP/2 to avoid potential issues
+            ) as client:
+                response = await client.post(url, headers=headers, json=payload)
+                response.raise_for_status()
+                data = response.json()
+                return data["choices"][0]["message"]["content"].strip()
+
+        except httpx.ReadTimeout:
+            logger.warning(f"GPT-3.5 timeout on attempt {attempt + 1}/{max_retries}")
+            if attempt == max_retries - 1:
+                return "Сервер GPT-3.5 не ответил вовремя (таймаут)."
+            await asyncio.sleep(base_delay * (2**attempt))  # Exponential backoff
+
+        except httpx.ConnectError as e:
+            logger.warning(
+                f"GPT-3.5 connection error on attempt {attempt + 1}/{max_retries}: {e}"
+            )
+            if attempt == max_retries - 1:
+                return "Ошибка подключения к сервису ИИ. Проверьте интернет-соединение."
+            await asyncio.sleep(base_delay * (2**attempt))
+
+        except httpx.HTTPStatusError as e:
+            logger.error(
+                f"GPT-3.5 HTTP error on attempt {attempt + 1}/{max_retries}: {e.response.status_code}"
+            )
+            if attempt == max_retries - 1:
+                return f"Ошибка сервера ИИ (код {e.response.status_code}). Попробуйте позже."
+            await asyncio.sleep(base_delay * (2**attempt))
+
+        except Exception as e:
+            logger.error(
+                f"GPT-3.5 unexpected error on attempt {attempt + 1}/{max_retries}: {e}"
+            )
+            if attempt == max_retries - 1:
+                return "Ошибка подключения к сервису ИИ. Попробуйте позже."
+            await asyncio.sleep(base_delay * (2**attempt))
+
+    return "Ошибка подключения к сервису ИИ. Попробуйте позже."
 
 
 class MediaAgent:
@@ -353,6 +431,156 @@ User input: "{text}"
             except json.JSONDecodeError:
                 return {"command": {"action": "control_media", "mediaCommand": "noop"}}
         return {"command": {"action": "control_media", "mediaCommand": "noop"}}
+
+
+async def needs_web_search(text: str) -> tuple[bool, str]:
+    """
+    Определяет, нужен ли веб-поиск для ответа на вопрос пользователя.
+    Возвращает (нужен_ли_поиск, поисковый_запрос)
+    """
+    prompt = f"""
+    Проанализируй вопрос пользователя и определи, нужен ли веб-поиск для получения актуальной информации.
+    
+    ВЕБ-ПОИСК НУЖЕН для:
+    - Погоды (текущая погода, прогноз)
+    - Новостей (актуальные события, последние новости)
+    - Курсов валют (текущие курсы)
+    - Цен на товары/услуги
+    - Информации о событиях, концертах, фильмах
+    - Статистики (спорт, экономика, политика)
+    - Любой информации, которая может измениться со временем
+    
+    ВЕБ-ПОИСК НЕ НУЖЕН для:
+    - Общих знаний (история, наука, факты)
+    - Объяснений понятий
+    - Советов и рекомендаций общего характера
+    - Математических расчетов
+    - Личных вопросов
+    
+    Ответь в формате JSON:
+    {{
+        "needs_search": true/false,
+        "search_query": "поисковый запрос на русском языке"
+    }}
+    
+    Если поиск не нужен, search_query может быть пустым.
+    
+    Примеры:
+    "Какая погода в Москве?" → {{"needs_search": true, "search_query": "погода Москва сегодня"}}
+    "Кто такой Пушкин?" → {{"needs_search": false, "search_query": ""}}
+    "Какие новости в Казахстане?" → {{"needs_search": true, "search_query": "новости Казахстан сегодня"}}
+    "Как приготовить борщ?" → {{"needs_search": false, "search_query": ""}}
+    "Курс доллара к рублю" → {{"needs_search": true, "search_query": "курс доллара к рублю сегодня"}}
+    
+    Вопрос: "{text}"
+    """
+
+    try:
+        response = await get_ai_answer(prompt)
+        # Ищем JSON в ответе
+        import json
+        import re
+
+        json_match = re.search(r"\{.*\}", response, re.DOTALL)
+        if json_match:
+            result = json.loads(json_match.group())
+            return result.get("needs_search", False), result.get("search_query", "")
+        else:
+            # Если JSON не найден, попробуем определить по ключевым словам
+            search_keywords = [
+                "погода",
+                "weather",
+                "новости",
+                "news",
+                "курс",
+                "курс валют",
+                "цена",
+                "price",
+                "стоимость",
+                "расписание",
+                "schedule",
+                "сегодня",
+                "today",
+                "сейчас",
+                "now",
+                "актуальн",
+                "current",
+            ]
+            text_lower = text.lower()
+            needs_search = any(keyword in text_lower for keyword in search_keywords)
+            return needs_search, text if needs_search else ""
+    except Exception as e:
+        logger.error(f"Ошибка при определении необходимости поиска: {e}")
+        return False, ""
+
+
+async def process_web_search_results(
+    search_query: str, original_question: str, lang: str = "ru"
+) -> str:
+    """
+    Обрабатывает результаты веб-поиска и формирует ответ на основе найденной информации.
+    """
+    try:
+        from app.core.dependencies import handle_web_search
+        import json
+
+        # Выполняем поиск
+        search_data = await handle_web_search(search_query)
+
+        # Проверяем, что получили данные
+        if not search_data or "organic" not in search_data:
+            return f"Извините, не удалось найти информацию по запросу '{search_query}'."
+
+        # Извлекаем наиболее релевантные результаты
+        organic_results = search_data.get("organic", [])
+        if not organic_results:
+            return f"Извините, не найдено результатов по запросу '{search_query}'."
+
+        # Берем первые 3 результата для анализа
+        top_results = organic_results[:3]
+
+        # Формируем краткое описание результатов для ИИ
+        results_summary = []
+        for i, result in enumerate(top_results, 1):
+            title = result.get("title", "")
+            snippet = result.get("snippet", "")
+            results_summary.append(f"Результат {i}: {title} - {snippet}")
+
+        # Формируем промпт для обработки результатов поиска
+        prompt = f"""
+        На основе результатов веб-поиска ответь на вопрос пользователя.
+        
+        Вопрос пользователя: "{original_question}"
+        Поисковый запрос: "{search_query}"
+        
+        Найденные результаты:
+        {chr(10).join(results_summary)}
+        
+        Правила:
+        1. Отвечай на том же языке, что и вопрос пользователя({lang})
+        2. Используй только информацию из результатов поиска
+        3. Если информации недостаточно, скажи об этом
+        4. Будь кратким и информативным (не более 2-3 предложений)
+        5. Укажи источник информации, если возможно
+        6. Не придумывай информацию, которой нет в результатах поиска
+        7. Если есть противоречивые данные, укажи это
+        
+        Ответ:
+        """
+
+        answer = await get_35_ai_answer(prompt)
+        if not answer or answer.startswith("Ошибка"):
+            # Fallback ответ на основе найденных данных
+            first_result = top_results[0]
+            title = first_result.get("title", "")
+            snippet = first_result.get("snippet", "")
+            return f"На основе найденной информации: {snippet[:200]}..."
+
+        return answer.strip()
+
+    except Exception as e:
+        logger.error(f"Ошибка при обработке результатов поиска: {e}")
+        return f"Извините, произошла ошибка при получении информации. Попробуйте позже."
 
 
 class TextGenerationAgent:
