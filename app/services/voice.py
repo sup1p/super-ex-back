@@ -102,7 +102,7 @@ class ActionAgent:
         return {"action": "noop"}
 
     @staticmethod
-    async def handle_question(text: str, lang: str) -> str:
+    async def handle_question(text: str) -> str:
         prompt = f"""
         Respond to the following user question in the same language it was asked.
         - Limit your response to no more than 35 words.
@@ -520,73 +520,85 @@ async def needs_web_search(text: str) -> tuple[bool, str]:
         return False, ""
 
 
-async def process_web_search_results(
-    search_query: str, original_question: str, lang: str = "ru"
-) -> str:
+async def process_web_search_results(search_query: str, original_question: str) -> str:
     """
-    Обрабатывает результаты веб-поиска и формирует ответ на основе найденной информации.
+    Processes web search results and generates an answer based on the found information.
+    The answer will be in the same language as the original question, determined automatically.
     """
     try:
         from app.core.dependencies import handle_web_search
         import json
+        import re
 
-        # Выполняем поиск
+        # Language detection utility (simple heuristic, can be replaced with a library)
+        def detect_language(text):
+            try:
+                import langdetect
+
+                return langdetect.detect(text)
+            except ImportError:
+                # Fallback: simple heuristic for English/Russian
+                cyrillic = re.compile("[\u0400-\u04ff]")
+                if cyrillic.search(text):
+                    return "ru"
+                return "en"
+
+        user_lang = detect_language(original_question)
+
+        # Perform the search
         search_data = await handle_web_search(search_query)
 
-        # Проверяем, что получили данные
+        # Check if we got data
         if not search_data or "organic" not in search_data:
-            return f"Извините, не удалось найти информацию по запросу '{search_query}'."
+            return f"Could not find any information for request: '{search_query}'."
 
-        # Извлекаем наиболее релевантные результаты
+        # Extract the most relevant results
         organic_results = search_data.get("organic", [])
         if not organic_results:
-            return f"Извините, не найдено результатов по запросу '{search_query}'."
+            return f"Could not find any information for request: '{search_query}'."
 
-        # Берем первые 3 результата для анализа
+        # Take the top 3 results for analysis
         top_results = organic_results[:3]
 
-        # Формируем краткое описание результатов для ИИ
+        # Summarize the results for the AI
         results_summary = []
         for i, result in enumerate(top_results, 1):
             title = result.get("title", "")
             snippet = result.get("snippet", "")
-            results_summary.append(f"Результат {i}: {title} - {snippet}")
+            results_summary.append(f"Result {i}: {title} - {snippet}")
 
-        # Формируем промпт для обработки результатов поиска
+        # Build the prompt for the AI
         prompt = f"""
-        На основе результатов веб-поиска ответь на вопрос пользователя.
-        
-        Вопрос пользователя: "{original_question}"
-        Поисковый запрос: "{search_query}"
-        
-        Найденные результаты:
+        Based only on the following web search results, answer the user's question.
+        - Always answer in the same language as the user's question (detected: {user_lang}).
+        - Use only the information from the search results below.
+        - If there is not enough information, say so.
+        - Be brief and informative (no more than 2-3 sentences).
+        - Cite the source if possible.
+        - Do not make up information that is not present in the search results.
+        - If there are conflicting data, mention it.
+
+        User question: "{original_question}"
+        Search query: "{search_query}"
+
+        Search results:
         {chr(10).join(results_summary)}
-        
-        Правила:
-        1. Отвечай на том же языке, что и вопрос пользователя({lang})
-        2. Используй только информацию из результатов поиска
-        3. Если информации недостаточно, скажи об этом
-        4. Будь кратким и информативным (не более 2-3 предложений)
-        5. Укажи источник информации, если возможно
-        6. Не придумывай информацию, которой нет в результатах поиска
-        7. Если есть противоречивые данные, укажи это
-        
-        Ответ:
+
+        Answer:
         """
 
         answer = await get_35_ai_answer(prompt)
-        if not answer or answer.startswith("Ошибка"):
-            # Fallback ответ на основе найденных данных
+        if not answer or answer.lower().startswith("error"):
+            # Fallback answer based on the first found snippet
             first_result = top_results[0]
-            title = first_result.get("title", "")
             snippet = first_result.get("snippet", "")
-            return f"На основе найденной информации: {snippet[:200]}..."
+            return f"Based on the found information: {snippet[:200]}..."
 
         return answer.strip()
 
     except Exception as e:
-        logger.error(f"Ошибка при обработке результатов поиска: {e}")
-        return f"Извините, произошла ошибка при получении информации. Попробуйте позже."
+        logger.error(f"Error processing web search results: {e}")
+        return "Sorry, an error occurred while retrieving information. Please try again later."
 
 
 class TextGenerationAgent:

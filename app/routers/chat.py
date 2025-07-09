@@ -169,7 +169,10 @@ async def websocket_chat(websocket: WebSocket):
                     logger.info(f"Требуется веб-поиск для запроса: {search_query}")
                     # Отправляем промежуточное сообщение о поиске
                     await websocket.send_json(
-                        {"text": "Ищу актуальную информацию...", "searching": True}
+                        {
+                            "text": "Searching for actual information..",
+                            "searching": True,
+                        }
                     )
 
                     # Выполняем поиск и обрабатываем результаты

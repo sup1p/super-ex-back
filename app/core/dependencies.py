@@ -185,13 +185,11 @@ async def handle_voice_websocket(websocket: WebSocket):
                     if needs_search and search_query:
                         logger.info(f"Требуется веб-поиск для запроса: {search_query}")
                         # Выполняем поиск и обрабатываем результаты
-                        answer = await process_web_search_results(
-                            search_query, text, lang
-                        )
+                        answer = await process_web_search_results(search_query, text)
                         logger.info(f"Получен ответ на основе веб-поиска: {answer}")
                     else:
                         # Получаем обычный ответ от ИИ
-                        answer = await ActionAgent.handle_question(text, lang)
+                        answer = await ActionAgent.handle_question(text)
                         logger.info(f"AI responded with default answer: {answer}")
                 elif intent == "generate_text":
                     result = await TextGenerationAgent.handle_generate_text(text, lang)
