@@ -42,6 +42,7 @@ app.add_middleware(
     allow_origins=[
         "chrome-extension://ibkkolnhabfjiggngeedojohemhkddjk",
         "http://localhost:3000",
+        "https://yourmegan.me",
     ],
     allow_credentials=True,
     allow_methods=["*"],
