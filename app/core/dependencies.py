@@ -43,6 +43,23 @@ voice_map = {
 }
 
 
+SERPER_API_KEY = os.getenv("SERPER_API_KEY")
+
+
+async def fetch_website(website_url: str):
+    url = "https://scrape.serper.dev"
+    payload = {"url": website_url}
+    headers = {
+        "X-API-KEY": SERPER_API_KEY,  # Вставь свой ключ
+        "Content-Type": "application/json",
+    }
+
+    async with aiohttp.ClientSession() as session:
+        async with session.post(url, headers=headers, json=payload) as response:
+            result = await response.text()
+            return result
+
+
 def is_valid_text(text: str) -> bool:
     # Проверяем минимальную длину оригинального текста
     if len(text.strip()) < 5:

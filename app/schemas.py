@@ -81,4 +81,4 @@ class TokenResponse(BaseModel):
 
 
 class SummaryRequest(BaseModel):
-    text: str
+    url: str
