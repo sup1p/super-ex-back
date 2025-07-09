@@ -9,8 +9,11 @@ from app.services import summarize
 
 from app.schemas import SummaryRequest
 
+import logging
+
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 @router.post(
@@ -21,7 +24,18 @@ async def summarize_webpage(
     summary_request: SummaryRequest,
     current_user: User = Depends(get_current_user),
 ):
-    return await summarize.summarize_text_full(summary_request.text, 2000)
+    logger.info(f"TEXT CAME TO SUMMARIZE: {summary_request.text}")
+    truncated_text = summary_request.text[:8000]
+    logger.info(f"TRUNCATED TEXT TO SUMMARIZE: {truncated_text}")
+    return await summarize.summarize_text_full(truncated_text, 2000)
+
+
+# @router.post("/tool/summarize-new")
+# async def summarize_webpage_new(
+#     summary_request: ,
+#     current_user: User = Depends(get_current_user),
+# ):
+#     logger.info(f"Website came to summarize: {summary_request}")
 
 
 # @router.get("/tools/simplify/{note_id}", tags=["Tools"])

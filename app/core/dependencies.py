@@ -15,6 +15,7 @@ import re
 import tempfile
 from edge_tts.exceptions import NoAudioReceived
 from dotenv import load_dotenv
+import asyncio
 
 from ..services.voice import (
     IntentAgent,

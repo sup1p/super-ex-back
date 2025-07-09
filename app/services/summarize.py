@@ -1,4 +1,4 @@
-from .voice import get_ai_answer
+from .voice import get_ai_answer, get_35_ai_answer
 
 
 async def summarize_text_full(text: str, chunk_size: int = 3000) -> str:
@@ -45,7 +45,7 @@ async def summarize_single_chunk(chunk: str) -> str:
     TEXT:
     {chunk}
     """
-    return await get_ai_answer(prompt)
+    return await get_35_ai_answer(prompt)
 
 
 async def summarize_final_chunk(chunk: str) -> str:
