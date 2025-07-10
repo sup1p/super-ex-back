@@ -19,7 +19,6 @@ async def translate(
     text: str = Query(..., description="Text to translate"),
     src: str = Query("ru", description="Source language"),
     dest: str = Query("en", description="Destination language"),
-    db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     result = await translator.translate(text, src=src, dest=dest)

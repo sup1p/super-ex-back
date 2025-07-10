@@ -9,7 +9,7 @@ from app.schemas import RegisterRequest, LoginRequest, TokenResponse
 from app.models import User
 from app.core.database import AsyncSessionLocal, engine, Base
 from app.core.security import hash_password, verify_password, create_access_token
-from app.routers import chat, note, translate, user, tools, smtp
+from app.routers import chat, note, translate, user, tools, smtp, voice
 from fastapi.security import OAuth2PasswordRequestForm
 
 from pydantic import BaseModel
@@ -126,3 +126,4 @@ app.include_router(translate.router)
 app.include_router(user.router)
 app.include_router(tools.router)
 app.include_router(smtp.router)
+app.include_router(voice.router)

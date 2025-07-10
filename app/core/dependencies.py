@@ -237,7 +237,7 @@ async def handle_voice_websocket(websocket: WebSocket):
                     logger.info("New note created with voice!!!")
                     continue
                 else:
-                    answer = "Пожалуйста, повторите команду."
+                    answer = "Please, repeat your command."
                     logger.info("AI could not understand request")
 
                 voice = os.getenv("ELEVEN_LABS_VOICE_ID")

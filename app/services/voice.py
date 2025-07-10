@@ -40,7 +40,7 @@ Possible values for mediaCommand:
 - "next"      — next video (if multiple on page)
 - "prev"      — previous video
 - "forward"   — seek forward (e.g., 20 seconds)
-- "backward"  — seek backward (e.g., 20 seconds)
+- "`backward`"  — seek backward (e.g., 20 seconds)
 - "volume_up" — increase volume
 - "volume_down" — decrease volume
 """
@@ -66,6 +66,8 @@ class IntentAgent:
         User: "pause music" → media
         User: "сделай погромче" → media
         User: "следующее видео" → media
+        User: "включи следующее видео" → media
+        User: "переключи на следующее видео" → media
         User: "открой ютуб" → command
         User: "закрой вкладку" → command
         User: "найди видео с котиками" → command

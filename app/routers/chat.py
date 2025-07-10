@@ -10,8 +10,6 @@ from app.schemas import ChatSessionMessageRead, ChatSessionRead
 from app.core.dependencies import (
     get_db,
     get_current_user,
-    handle_voice_websocket,
-    handle_web_search,
 )
 from app.core.config import settings
 from app.services.voice import (
@@ -202,35 +200,3 @@ async def websocket_chat(websocket: WebSocket):
                 await websocket.close(code=1011, reason="Server error")
             except:
                 logger.error("Не удалось закрыть WebSocket после ошибки.")
-
-
-@router.websocket("/websocket-voice")
-async def websocket_voice(websocket: WebSocket):
-    token = websocket.query_params.get("token")
-    if not token:
-        await websocket.send_json({"error": "No token provided"})
-        await websocket.close()
-        logger.error("WebSocket закрыт: не передан токен.")
-        return
-    async with AsyncSessionLocal() as db:
-        try:
-            payload = jwt.decode(token, settings.secret_key, algorithms=["HS256"])
-            user_id: str = payload.get("sub")
-            if not user_id:
-                await websocket.send_json({"error": "Invalid token"})
-                await websocket.close()
-                logger.error("WebSocket закрыт: некорректный токен (нет user_id).")
-                return
-        except JWTError:
-            await websocket.send_json({"error": "Invalid token"})
-            await websocket.close()
-            logger.error("WebSocket закрыт: некорректный токен (JWTError).")
-            return
-        result = await db.execute(select(User).where(User.id == int(user_id)))
-        user = result.scalar_one_or_none()
-        if not user:
-            await websocket.send_json({"error": "User not found"})
-            await websocket.close()
-            logger.error(f"WebSocket закрыт: пользователь с id {user_id} не найден.")
-            return
-    await handle_voice_websocket(websocket)
