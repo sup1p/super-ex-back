@@ -86,3 +86,9 @@ class SummaryRequest(BaseModel):
 
 class TextRequest(BaseModel):
     text: str
+
+
+class TranslateRequest(BaseModel):
+    text: str
+    src: str = "en"
+    dest: str = "en"
