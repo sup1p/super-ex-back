@@ -7,10 +7,7 @@ from app.core.database import AsyncSessionLocal
 from app.models import ChatSession, Message, User
 from app.schemas import ChatSessionMessageRead, ChatSessionRead
 
-from app.core.dependencies import (
-    get_db,
-    get_current_user,
-)
+from app.core.dependencies import get_db, get_current_user, count_tokens
 from app.core.config import settings
 from app.services.voice import (
     get_ai_answer,
@@ -19,6 +16,8 @@ from app.services.voice import (
     process_web_search_results,
 )
 
+from app.token_limit import check_token_limit
+import app.redis_client
 from jose import JWTError, jwt
 from typing import List
 import logging
@@ -96,6 +95,9 @@ async def websocket_chat(websocket: WebSocket):
         logger.error("WebSocket закрыт: не передан токен.")
         return
     # Получаем пользователя по токену
+    if app.redis_client.redis is None or not hasattr(app.redis_client.redis, "get"):
+        await websocket.close(code=1013, reason="Server not ready")
+        return
     async with AsyncSessionLocal() as db:
         try:
             payload = jwt.decode(token, settings.secret_key, algorithms=["HS256"])
@@ -141,7 +143,10 @@ async def websocket_chat(websocket: WebSocket):
         try:
             while True:
                 data = await websocket.receive_text()
+                tokens_in = count_tokens(data)
+
                 logger.info(f"Получено сообщение: {data}")
+
                 if chat_session is None:
                     # Получаем название чата от ИИ
                     prompt = f"Придумай короткое название для чата по этому сообщению. Ответь ТОЛЬКО ОДНИМ СЛОВОМ: {data}"
@@ -165,6 +170,22 @@ async def websocket_chat(websocket: WebSocket):
 
                 if needs_search and search_query:
                     logger.info(f"Требуется веб-поиск для запроса: {search_query}")
+                    tokens_in += 500
+                    try:
+                        await check_token_limit(
+                            app.redis_client.redis, user_id, tokens_in
+                        )
+                    except HTTPException as e:
+                        if e.status_code == 429:
+                            response = {"text": "Token limit exceeded"}
+                            await websocket.send_json(response)
+                            await websocket.close(
+                                code=4001, reason="Token limit exceeded"
+                            )
+                            logger.warning("WebSocket закрыт: превышен лимит токенов")
+                            return
+                        else:
+                            raise
                     # Отправляем промежуточное сообщение о поиске
                     await websocket.send_json(
                         {
@@ -175,10 +196,61 @@ async def websocket_chat(websocket: WebSocket):
 
                     # Выполняем поиск и обрабатываем результаты
                     ai_answer = await process_web_search_results(search_query, data)
+
+                    tokens_out = count_tokens(ai_answer)
+                    try:
+                        await check_token_limit(
+                            app.redis_client.redis, user_id, tokens_out
+                        )
+                    except HTTPException as e:
+                        if e.status_code == 429:
+                            response = {"text": "Token limit exceeded"}
+                            await websocket.send_json(response)
+                            await websocket.close(
+                                code=4001, reason="Token limit exceeded"
+                            )
+                            logger.warning("WebSocket закрыт: превышен лимит токенов")
+                            return
+                        else:
+                            raise
+
                     logger.info(f"Получен ответ на основе веб-поиска: {ai_answer}")
                 else:
                     # Получаем обычный ответ от ИИ
+                    try:
+                        await check_token_limit(
+                            app.redis_client.redis, user_id, tokens_in
+                        )
+                    except HTTPException as e:
+                        if e.status_code == 429:
+                            response = {"text": "Token limit exceeded"}
+                            await websocket.send_json(response)
+                            await websocket.close(
+                                code=4001, reason="Token limit exceeded"
+                            )
+                            logger.warning("WebSocket закрыт: превышен лимит токенов")
+                            return
+                        else:
+                            raise
                     ai_answer = await get_35_ai_answer(data)
+
+                    tokens_out = count_tokens(ai_answer)
+                    try:
+                        await check_token_limit(
+                            app.redis_client.redis, user_id, tokens_out
+                        )
+                    except HTTPException as e:
+                        if e.status_code == 429:
+                            response = {"text": "Token limit exceeded"}
+                            await websocket.send_json(response)
+                            await websocket.close(
+                                code=4001, reason="Token limit exceeded"
+                            )
+                            logger.warning("WebSocket закрыт: превышен лимит токенов")
+                            return
+                        else:
+                            raise
+
                     logger.info(f"Получен обычный ответ от ИИ: {ai_answer}")
 
                 # Сохраняем ответ ИИ

@@ -11,6 +11,9 @@ from app.core.database import AsyncSessionLocal, engine, Base
 from app.core.security import hash_password, verify_password, create_access_token
 from app.routers import chat, note, translate, user, tools, smtp, voice
 from fastapi.security import OAuth2PasswordRequestForm
+import redis.asyncio as aioredis
+from app import redis_client
+from contextlib import asynccontextmanager
 
 from pydantic import BaseModel
 import os
@@ -33,9 +36,27 @@ async def init_models() -> None:
 
 
 # ────────────────────────────── FastAPI ────────────────────────────────────────
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    print("Lifespan startup: initializing redis")
+    redis_client.redis = await aioredis.from_url(REDIS_URL, decode_responses=True)
+    print("Lifespan startup: redis initialized")
+    yield
+    print("Lifespan shutdown: closing redis")
+    await redis_client.redis.close()
+    print("Lifespan shutdown: redis closed")
+
+
 app = FastAPI(
-    title="Browser‑AI Backend", docs_url=None, redoc_url=None, openapi_url=None
+    title="Browser‑AI Backend",
+    docs_url=None,
+    redoc_url=None,
+    openapi_url=None,
+    lifespan=lifespan,
 )
+
 
 app.add_middleware(
     CORSMiddleware,
@@ -97,11 +118,11 @@ async def login(
     return TokenResponse(access_token=create_access_token(str(user.id)))
 
 
-load_dotenv()
-
+AI_TOKEN_LIMIT = os.getenv("AI_TOKEN_LIMIT")
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
 REDIRECT_URI = "http://localhost:3000/auth/callback"
+REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
 
 
 class Code(BaseModel):
@@ -115,9 +136,10 @@ async def root() -> dict[str, str]:
 
 
 # ────────────────────────────── Startup hook ──────────────────────────────────
-@app.on_event("startup")
-async def on_startup() -> None:
-    await init_models()
+# Уберите все @app.on_event("startup") и @app.on_event("shutdown").
+
+
+# ────────────────────────────── Lifespan ──────────────────────────────────────
 
 
 app.include_router(chat.router)
