@@ -45,3 +45,5 @@ six==1.17.0
 setuptools==80.9.0
 attrs==25.3.0
 pydantic[email]
+tiktoken
+redis>=4.2.0

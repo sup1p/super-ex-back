@@ -17,6 +17,8 @@ from app.core.config import settings
 from app.services.voice import (
     synthesize_speech_async,
 )
+import app.redis_client
+from app.token_limit import check_voice_limit_only, increment_voice_limit
 
 from jose import JWTError, jwt
 import logging
@@ -60,13 +62,20 @@ async def websocket_voice(websocket: WebSocket):
             await websocket.close()
             logger.error(f"WebSocket закрыт: пользователь с id {user_id} не найден.")
             return
-    await handle_voice_websocket(websocket)
+
+    await handle_voice_websocket(websocket, str(user_id))
 
 
 @router.post("/tools/voice/selected")
 async def voice_text(
     voice_request: TextRequest, current_user: User = Depends(get_current_user)
 ):
+    user_id = str(current_user.id)
+    symbols_needed = len(voice_request.text)
+    redis = app.redis_client.redis
+
+    await check_voice_limit_only(redis, user_id, symbols_needed)
+
     text_to_voice = voice_request.text
     voice = os.getenv("ELEVEN_LABS_VOICE_ID")
     with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as f:
@@ -91,4 +100,7 @@ async def voice_text(
         )
         return {"text": text_to_voice}
     logger.info(f"Sent voiced text to client: {text_to_voice}")
+
+    await increment_voice_limit(redis, user_id, symbols_needed)
+
     return {"text": text_to_voice, "audio_base64": audio_b64}

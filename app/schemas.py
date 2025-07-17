@@ -90,5 +90,5 @@ class TextRequest(BaseModel):
 
 class TranslateRequest(BaseModel):
     text: str
-    src: str = "en"
-    dest: str = "en"
+    src: str
+    dest: str

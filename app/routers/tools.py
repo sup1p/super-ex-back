@@ -12,20 +12,13 @@ from app.schemas import SummaryRequest, TextRequest
 
 import logging
 
+from app.token_limit import check_summarize_limit_only, increment_summarize_limit
+import app.redis_client
+
 
 router = APIRouter()
 translator = Translator()
 logger = logging.getLogger(__name__)
-
-
-@router.post("/tool/summarize")
-async def summarize_webpage(
-    text_request: TextRequest, current_user: User = Depends(get_current_user)
-):
-    logger.info(f"TEXT CAME TO SUMMARIZE: {text_request.text}")
-    truncated_text = text_request.text[:8000]
-    logger.info(f"TRUNCATED TEXT TO SUMMARIZE: {truncated_text}")
-    return await summarize.summarize_text_full(truncated_text, 2000)
 
 
 @router.post(
@@ -40,7 +33,15 @@ async def summarize_webpage_new(
     website_text = await fetch_website(summary_request.url)
     logger.info(f"TRUNCATED TEXT TO SUMMARIZE: {website_text}")
     truncated_website_text = website_text[:8000]
-    return await summarize.summarize_text_full(truncated_website_text, 2000)
+    user_id = str(current_user.id)
+    symbols_needed = len(truncated_website_text)
+    redis = app.redis_client.redis
+    await check_summarize_limit_only(
+        redis, user_id, symbols_needed
+    )  # returns 429 if limit exceeded
+    summarized_text = await summarize.summarize_text_full(truncated_website_text, 2000)
+    await increment_summarize_limit(redis, user_id, symbols_needed)
+    return summarized_text
 
 
 @router.post("/tools/summarize/selected", tags=["Tools"])
@@ -51,21 +52,15 @@ async def summarize_text(
 
     truncated_text_to_summarize = text_to_summarize[:5000]
 
+    user_id = str(current_user.id)
+    symbols_needed = len(truncated_text_to_summarize)
+    redis = app.redis_client.redis
+    await check_summarize_limit_only(
+        redis, user_id, symbols_needed
+    )  # returns 429 if limit exceeded
     summarized_text = await summarize.summarize_text_full(
         truncated_text_to_summarize, 3000
     )
-
+    await increment_summarize_limit(redis, user_id, symbols_needed)
     logger.info(f"Sent summarized text to client: {text_to_summarize}")
     return {"summarized_text": summarized_text}
-
-
-# @router.get("/tools/simplify/{note_id}", tags=["Tools"])
-# async def get_note(
-#     note_id: int,
-#     db: AsyncSession = Depends(get_db),
-#     current_user: User = Depends(get_current_user),
-# ):
-#     note = await db.get(Notes, note_id)
-#     if note is None or note.user_id != current_user.id:
-#         raise HTTPException(status_code=404, detail="Note not found")
-#     return note

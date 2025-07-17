@@ -16,7 +16,7 @@ from app.services.voice import (
     process_web_search_results,
 )
 
-from app.token_limit import check_token_limit
+from app.token_limit import check_ai_limit_only, increment_ai_limit
 import app.redis_client
 from jose import JWTError, jwt
 from typing import List
@@ -172,7 +172,7 @@ async def websocket_chat(websocket: WebSocket):
                     logger.info(f"Требуется веб-поиск для запроса: {search_query}")
                     tokens_in += 500
                     try:
-                        await check_token_limit(
+                        await check_ai_limit_only(
                             app.redis_client.redis, user_id, tokens_in
                         )
                     except HTTPException as e:
@@ -197,28 +197,21 @@ async def websocket_chat(websocket: WebSocket):
                     # Выполняем поиск и обрабатываем результаты
                     ai_answer = await process_web_search_results(search_query, data)
 
+                    # После успешной генерации — инкрементируем лимит входящих токенов
+                    await increment_ai_limit(app.redis_client.redis, user_id, tokens_in)
+
                     tokens_out = count_tokens(ai_answer)
-                    try:
-                        await check_token_limit(
-                            app.redis_client.redis, user_id, tokens_out
-                        )
-                    except HTTPException as e:
-                        if e.status_code == 429:
-                            response = {"text": "Token limit exceeded"}
-                            await websocket.send_json(response)
-                            await websocket.close(
-                                code=4001, reason="Token limit exceeded"
-                            )
-                            logger.warning("WebSocket закрыт: превышен лимит токенов")
-                            return
-                        else:
-                            raise
+
+                    # После успешной генерации — инкрементируем лимит исходящих токенов
+                    await increment_ai_limit(
+                        app.redis_client.redis, user_id, tokens_out
+                    )
 
                     logger.info(f"Получен ответ на основе веб-поиска: {ai_answer}")
                 else:
                     # Получаем обычный ответ от ИИ
                     try:
-                        await check_token_limit(
+                        await check_ai_limit_only(
                             app.redis_client.redis, user_id, tokens_in
                         )
                     except HTTPException as e:
@@ -234,22 +227,15 @@ async def websocket_chat(websocket: WebSocket):
                             raise
                     ai_answer = await get_35_ai_answer(data)
 
+                    # После успешной генерации — инкрементируем лимит входящих токенов
+                    await increment_ai_limit(app.redis_client.redis, user_id, tokens_in)
+
                     tokens_out = count_tokens(ai_answer)
-                    try:
-                        await check_token_limit(
-                            app.redis_client.redis, user_id, tokens_out
-                        )
-                    except HTTPException as e:
-                        if e.status_code == 429:
-                            response = {"text": "Token limit exceeded"}
-                            await websocket.send_json(response)
-                            await websocket.close(
-                                code=4001, reason="Token limit exceeded"
-                            )
-                            logger.warning("WebSocket закрыт: превышен лимит токенов")
-                            return
-                        else:
-                            raise
+
+                    # После успешной генерации — инкрементируем лимит исходящих токенов
+                    await increment_ai_limit(
+                        app.redis_client.redis, user_id, tokens_out
+                    )
 
                     logger.info(f"Получен обычный ответ от ИИ: {ai_answer}")
 
