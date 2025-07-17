@@ -29,13 +29,16 @@ async def summarize_webpage_new(
     summary_request: SummaryRequest,
     current_user: User = Depends(get_current_user),
 ):
+    user_id = str(current_user.id)
+    redis = app.redis_client.redis
     logger.info(f"Website came to summarize: {summary_request.url}")
+
+    await check_summarize_limit_only(redis, user_id, 1001)
+
     website_text = await fetch_website(summary_request.url)
     logger.info(f"TRUNCATED TEXT TO SUMMARIZE: {website_text}")
     truncated_website_text = website_text[:8000]
-    user_id = str(current_user.id)
     symbols_needed = len(truncated_website_text)
-    redis = app.redis_client.redis
     await check_summarize_limit_only(
         redis, user_id, symbols_needed
     )  # returns 429 if limit exceeded
