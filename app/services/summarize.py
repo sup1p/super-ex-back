@@ -38,7 +38,7 @@ def split_text_into_chunks(text: str, max_chars: int = 3000) -> list[str]:
 
 async def summarize_single_chunk(chunk: str) -> str:
     prompt = f"""
-    You are a summarizer. Language: "As in the TEXT section"
+    You are a summarizer. IMPORTANT: Language: "As in the TEXT section"
     Summarize the following content in 4–6 sentences.
     No markdown, no lists, just readable text.
 
@@ -50,7 +50,7 @@ async def summarize_single_chunk(chunk: str) -> str:
 
 async def summarize_final_chunk(chunk: str) -> str:
     prompt = f"""
-    You are a summarizer. Language: "As in the TEXT section"
+    You are a summarizer. IMPORTANT: Language: "As in the TEXT section"
     Summarize the following content in 12-14 sentences.
     No markdown, no lists, just readable text.
 

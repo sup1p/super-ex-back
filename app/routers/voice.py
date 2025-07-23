@@ -5,13 +5,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import AsyncSessionLocal
 
 from app.models import User
-from app.schemas import TextRequest
+from app.schemas import TextRequest, SummaryRequest
 
 from edge_tts.exceptions import NoAudioReceived
 
 from app.core.dependencies import (
     get_current_user,
     handle_voice_websocket,
+    voice_website_summary,
 )
 from app.core.config import settings
 from app.services.voice import (
@@ -104,3 +105,10 @@ async def voice_text(
     await increment_voice_limit(redis, user_id, symbols_needed)
 
     return {"text": text_to_voice, "audio_base64": audio_b64}
+
+
+@router.post("/tools/voice/website_summary")
+async def voice_website_summary_route(
+    data: SummaryRequest, current_user: User = Depends(get_current_user)
+):
+    return await voice_website_summary(data.url, current_user.id)

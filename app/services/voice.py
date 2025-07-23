@@ -55,6 +55,7 @@ class IntentAgent:
         - question
         - media (controlling media **on the current page**: play, pause, next, volume)
         - generate_text (user wants to generate an essay, summary, article, note, etc.)
+        - summarize_webpage (user wants to summarize the content of the currently open webpage)
         - noise
         - uncertain
 
@@ -83,6 +84,15 @@ class IntentAgent:
         User: "Создай заметку: купить хлеб" → generate_text
         User: "Запиши: позвонить маме завтра" → generate_text
 
+        User: "сделай краткое изложение этой страницы" → summarize_webpage
+        User: "summarize this page" → summarize_webpage
+        User: "дай краткое содержание текущей вкладки" → summarize_webpage
+        User: "что написано на этой странице?" → summarize_webpage
+        User: "Can you summarize this page?" → summarize_webpage
+        User: "Could you please summarize this page?" → summarize_webpage
+        User: "Можешь сделать краткое изложение этой страницы?" → summarize_webpage
+        User: "Можешь подытожить, что на этой странице?" → summarize_webpage
+
         Input: \"{text}\"
         """
         response = await get_35_ai_answer(prompt)
@@ -106,7 +116,7 @@ class ActionAgent:
     @staticmethod
     async def handle_question(text: str) -> str:
         prompt = f"""
-        Respond to the following user question in the same language it was asked.
+        IMPORTANT:Respond to the following user question in the SAME LANGUAGE it was asked.
         - Limit your response to no more than 35 words.
         - Do not use asterisks (*) or markdown symbols.
 

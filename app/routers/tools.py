@@ -36,8 +36,8 @@ async def summarize_webpage_new(
     await check_summarize_limit_only(redis, user_id, 1001)
 
     website_text = await fetch_website(summary_request.url)
-    logger.info(f"TRUNCATED TEXT TO SUMMARIZE: {website_text}")
     truncated_website_text = website_text[:8000]
+    logger.info(f"TRUNCATED TEXT TO SUMMARIZE: {truncated_website_text}")
     symbols_needed = len(truncated_website_text)
     await check_summarize_limit_only(
         redis, user_id, symbols_needed

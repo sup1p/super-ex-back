@@ -25,6 +25,7 @@ from app.token_limit import (
 )
 import app.redis_client
 
+from app.services import summarize
 
 from ..services.voice import (
     IntentAgent,
@@ -37,10 +38,13 @@ from ..services.voice import (
     process_web_search_results,
 )
 
+import logging
 import requests
 import aiohttp
 
 load_dotenv()
+logger = logging.getLogger(__name__)
+
 
 voice_map = {
     "ru": "ru-RU-DmitryNeural",
@@ -72,6 +76,86 @@ async def fetch_website(website_url: str):
         async with session.post(url, headers=headers, json=payload) as response:
             result = await response.text()
             return result
+
+
+async def get_voice_summary_within_limit(redis, user_id: str, text: str) -> str:
+    """
+    Возвращает часть текста, которую можно озвучить, не превышая лимит символов на сегодня.
+    Если лимита хватает — возвращает весь текст.
+    Если нет — только часть, которая помещается в лимит.
+    """
+    from app.token_limit import VOICE_SYMBOLS_LIMIT
+    from datetime import date
+
+    today = date.today().isoformat()
+    key = f"voice_symbols:{user_id}:{today}"
+    current = await redis.get(key)
+    current = int(current) if current else 0
+    limit = int(VOICE_SYMBOLS_LIMIT)
+    remaining = limit - current
+    if remaining <= 0:
+        return ""
+    return text[:remaining]
+
+
+async def voice_website_summary(website_url: str, current_user_id: str):
+    user_id = str(current_user_id)
+    symbols_needed = 100
+    redis = app.redis_client.redis
+
+    await check_voice_limit_only(redis, user_id, symbols_needed)
+
+    data_to_voice = await fetch_website(website_url)
+
+    try:
+        parsed = json.loads(data_to_voice)
+        if isinstance(parsed, dict) and "text" in parsed:
+            data_to_voice = parsed["text"]
+    except Exception:
+        pass  # if not JSON — leave as is
+
+    if len(data_to_voice) > 1000:
+        truncated_data_to_voice = data_to_voice[:10000]
+
+        summarized_text_to_voice = await summarize.summarize_text_full(
+            truncated_data_to_voice, 2000
+        )
+
+        summarized_text_to_voice = await get_voice_summary_within_limit(
+            redis, user_id, summarized_text_to_voice
+        )
+
+    else:
+        truncated_data_to_voice = data_to_voice
+        summarized_text_to_voice = truncated_data_to_voice
+
+    voice = os.getenv("ELEVEN_LABS_VOICE_ID")
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as f:
+        tts_path = f.name
+    try:
+        await synthesize_speech_async(summarized_text_to_voice, voice, tts_path)
+    except NoAudioReceived:
+        summarized_text_to_voice = "Error occured, could not synthesize text"
+        logger.error("[TTS] No audio received from edge_tts.")
+        audio_b64 = ""
+    except Exception as tts_e:
+        summarized_text_to_voice = "Error occured, could not synthesize text"
+        logger.error(f"TTS error: {tts_e}", exc_info=True)
+        audio_b64 = ""
+    else:
+        with open(tts_path, "rb") as f:
+            audio_b64 = base64.b64encode(f.read()).decode()
+        os.remove(tts_path)
+    if audio_b64 == "":
+        logger.info(
+            f"Error occured and system could not synthesize text. Sent text to client: {summarized_text_to_voice}"
+        )
+        return {"text": summarized_text_to_voice}
+    logger.info(f"Sent voiced text to client: {summarized_text_to_voice}")
+
+    await increment_voice_limit(redis, user_id, len(summarized_text_to_voice) + 50)
+
+    return {"text": summarized_text_to_voice, "audio_base64": audio_b64}
 
 
 def is_valid_text(text: str) -> bool:
@@ -288,6 +372,27 @@ async def handle_voice_websocket(websocket: WebSocket, user_id: str):
 
                     logger.info(f"AI responded with media command: {cmd}")
                     await websocket.send_json(cmd)
+                    continue
+                elif intent == "summarize_webpage":
+                    # Найти активную вкладку
+                    active_tab = next(
+                        (tab for tab in user_tabs if tab.get("active")), None
+                    )
+                    url = active_tab["url"] if active_tab else ""
+                    answer = await voice_website_summary(url, user_id)
+
+                    logger.info(
+                        f"AI responded with website summary: {answer.get('text', '')}"
+                    )
+
+                    await websocket.send_json(
+                        {
+                            "text": answer.get("text", ""),
+                            "audio_base64": answer.get("audio_base64", ""),
+                        }
+                    )
+
+                    logger.info("Sent TTS response for text")
                     continue
                 elif intent == "question":
                     tokens_in = count_tokens(text)
