@@ -9,7 +9,7 @@ from app.schemas import RegisterRequest, LoginRequest, TokenResponse
 from app.models import User
 from app.core.database import AsyncSessionLocal, engine, Base
 from app.core.security import hash_password, verify_password, create_access_token
-from app.routers import chat, note, translate, user, tools, smtp, voice
+from app.routers import chat, note, translate, user, tools, smtp, voice, calendar
 from fastapi.security import OAuth2PasswordRequestForm
 import redis.asyncio as aioredis
 from app import redis_client
@@ -51,9 +51,6 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Browser‑AI Backend",
-    docs_url=None,
-    redoc_url=None,
-    openapi_url=None,
     lifespan=lifespan,
 )
 
@@ -149,3 +146,4 @@ app.include_router(user.router)
 app.include_router(tools.router)
 app.include_router(smtp.router)
 app.include_router(voice.router)
+app.include_router(calendar.router)

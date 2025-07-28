@@ -20,6 +20,7 @@ class User(Base):
     sessions = relationship(
         "ChatSession", back_populates="user", cascade="all, delete-orphan"
     )
+    events = relationship("Event", back_populates="user", cascade="all, delete-orphan")
 
 
 class PendingUser(Base):
@@ -65,3 +66,18 @@ class Message(Base):
     timestamp = Column(DateTime, default=datetime.utcnow)
 
     session = relationship("ChatSession", back_populates="messages")
+
+
+class Event(Base):
+    __tablename__ = "events"
+
+    id = Column(Integer, primary_key=True, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"))
+    title = Column(String, index=True)
+    description = Column(String, index=True)
+    start_date = Column(DateTime, index=True)
+    location = Column(String, index=True)
+    reminder = Column(Integer, index=True)
+
+    user = relationship("User", back_populates="events")

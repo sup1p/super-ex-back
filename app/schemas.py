@@ -92,3 +92,32 @@ class TranslateRequest(BaseModel):
     text: str
     src: str
     dest: str
+
+
+class EventCreate(BaseModel):
+    title: str
+    description: str
+    start_date: datetime | None = None
+    location: str
+    reminder: int = 15
+
+
+class EventRead(BaseModel):
+    id: int
+    title: str
+    description: str
+    start_date: datetime
+    location: str
+    reminder: int | None = None
+    user_id: int
+
+    class Config:
+        orm_mode = True
+
+
+class EventUpdate(BaseModel):
+    title: str | None = None
+    description: str | None = None
+    start_date: datetime | None = None
+    location: str | None = None
+    reminder: int | None = None

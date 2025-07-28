@@ -5,7 +5,7 @@ from sqlalchemy import select
 
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
-from app.models import User
+from app.models import User, Event
 from dotenv import load_dotenv
 import logging
 import base64
@@ -36,6 +36,7 @@ from ..services.voice import (
     transcribe_audio_async,
     needs_web_search,
     process_web_search_results,
+    CalendarAgent,
 )
 
 import logging
@@ -497,6 +498,106 @@ async def handle_voice_websocket(websocket: WebSocket, user_id: str):
                     await websocket.send_json(response_json)
                     logger.info("New note created with voice!!!")
                     continue
+
+                elif intent == "calendar":
+                    # Fetch user's events first
+                    async with AsyncSessionLocal() as db:
+                        events = await db.execute(
+                            select(Event).where(Event.user_id == int(user_id))
+                        )
+                        user_events = [
+                            {
+                                "title": event.title,
+                                "description": event.description,
+                                "start_date": event.start_date,
+                                "location": event.location,
+                            }
+                            for event in events.scalars().all()
+                        ]
+
+                        # Get AI response
+                        cmd = await CalendarAgent.handle_calendar_command(
+                            text, lang, user_events
+                        )
+                        logger.info(f"AI responded with calendar command: {cmd}")
+
+                        # Handle event creation directly here
+                        if cmd.get("command", {}).get("operation") == "create_event":
+                            event_data = cmd["command"]["data"]
+                            # Convert string date to datetime object
+                            from datetime import datetime
+
+                            start_date = datetime.fromisoformat(
+                                event_data["start_date"]
+                            )
+
+                            new_event = Event(
+                                title=event_data["title"],
+                                description=event_data["description"],
+                                start_date=start_date,  # Now it's a datetime object
+                                location=event_data.get("location"),
+                                user_id=int(user_id),
+                            )
+                            db.add(new_event)
+                            await db.commit()
+
+                            answer = cmd["command"]["answer"]
+                            # Synthesize voice response
+                            await check_voice_limit_only(redis, user_id, len(answer))
+
+                            voice = os.getenv("ELEVEN_LABS_VOICE_ID")
+                            with tempfile.NamedTemporaryFile(
+                                delete=False, suffix=".mp3"
+                            ) as f:
+                                tts_path = f.name
+                            try:
+                                await synthesize_speech_async(answer, voice, tts_path)
+                            except NoAudioReceived:
+                                logger.error("[TTS] No audio received from edge_tts.")
+                                audio_b64 = ""
+                            except Exception as tts_e:
+                                logger.error(f"TTS error: {tts_e}", exc_info=True)
+                                audio_b64 = ""
+                            else:
+                                with open(tts_path, "rb") as f:
+                                    audio_b64 = base64.b64encode(f.read()).decode()
+                                os.remove(tts_path)
+
+                            await increment_voice_limit(redis, user_id, len(answer))
+
+                            # Send answer with audio
+                            await websocket.send_json(
+                                {"answer": answer, "audio_base64": audio_b64}
+                            )
+                        else:
+                            # For queries, also add voice synthesis
+                            answer = cmd["command"]["answer"]
+                            await check_voice_limit_only(redis, user_id, len(answer))
+
+                            voice = os.getenv("ELEVEN_LABS_VOICE_ID")
+                            with tempfile.NamedTemporaryFile(
+                                delete=False, suffix=".mp3"
+                            ) as f:
+                                tts_path = f.name
+                            try:
+                                await synthesize_speech_async(answer, voice, tts_path)
+                            except NoAudioReceived:
+                                logger.error("[TTS] No audio received from edge_tts.")
+                                audio_b64 = ""
+                            except Exception as tts_e:
+                                logger.error(f"TTS error: {tts_e}", exc_info=True)
+                                audio_b64 = ""
+                            else:
+                                with open(tts_path, "rb") as f:
+                                    audio_b64 = base64.b64encode(f.read()).decode()
+                                os.remove(tts_path)
+
+                            await increment_voice_limit(redis, user_id, len(answer))
+
+                            # Send full command with audio
+                            cmd["audio_base64"] = audio_b64
+                            await websocket.send_json(cmd)
+                        continue
                 else:
                     answer = "Please, repeat your command."
                     logger.info("AI could not understand request")

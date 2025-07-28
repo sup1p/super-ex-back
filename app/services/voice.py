@@ -52,12 +52,20 @@ class IntentAgent:
         prompt = f"""
         Classify the user's intent into one of the following:
         - command (browser/tab actions like open, close, switch, or **searching** on Google/YouTube)
-        - question
+        - question (asking for information, searching for something, prices, tickets, weather, etc.)
         - media (controlling media **on the current page**: play, pause, next, volume)
         - generate_text (user wants to generate an essay, summary, article, note, etc.)
         - summarize_webpage (user wants to summarize the content of the currently open webpage)
+        - calendar (creating, viewing, or managing calendar events and schedules)
         - noise
         - uncertain
+
+        Important Rules:
+        1. If user mentions "calendar" or "schedule" AND asks about events/meetings → it's calendar
+        2. If user asks about meetings/events in a specific time period → it's calendar
+        3. If user asks to find/search general information → it's question
+        4. When in doubt between calendar and question for event queries, prefer calendar
+        5. If user asks to FIND or SEARCH for something (tickets, prices, information, etc.) → it's a question
 
         Respond with ONLY one word.
 
@@ -71,19 +79,42 @@ class IntentAgent:
         User: "переключи на следующее видео" → media
         User: "открой ютуб" → command
         User: "закрой вкладку" → command
-        User: "найди видео с котиками" → command
-        User: "включи видео про dota 2" → command
+        User: "переключись на вторую вкладку" → command
 
-        User: "search for how to cook pasta" → command
-        User: "какая погода?" → question
+        User: "найди билеты с Алматы в Дубай" → question
+        User: "поищи информацию о погоде в Астане" → question
+        User: "сколько стоит айфон 15" → question
+        User: "найди рецепт борща" → question
+        User: "какие есть отели в Дубае" → question
+        User: "поищи цены на авиабилеты" → question
+        User: "найди информацию о визе в ОАЭ" → question
+        User: "какая погода в Алматы?" → question
         User: "Какие новости в Казахстане?" → question
         User: "Что делать если сломал ногу?" → question
         User: "спасибо" → noise
+
         User: "Напиши эссе о космосе" → generate_text
         User: "Сделай реферат по истории" → generate_text
         User: "Создай заметку: купить хлеб" → generate_text
         User: "Запиши: позвонить маме завтра" → generate_text
 
+        Calendar Examples:
+        User: "поставь встречу с Даниалом на завтра в 3 часа" → calendar
+        User: "запиши в календарь встречу с врачом на 15 июля" → calendar
+        User: "добавь событие: день рождения мамы 20 августа" → calendar
+        User: "когда у меня встреча с Даниалом?" → calendar
+        User: "покажи мои встречи на следующей неделе" → calendar
+        User: "какие события у меня сегодня?" → calendar
+        User: "что у меня запланировано на эту неделю?" → calendar
+        User: "какие у меня встречи в календаре?" → calendar
+        User: "покажи мой календарь на сегодня" → calendar
+        User: "какие встречи у меня в календаре на этой неделе?" → calendar
+        User: "я хочу посмотреть свои встречи в календаре" → calendar
+        User: "удали встречу с Даниалом на завтра" → calendar
+        User: "перенеси встречу с врачом на пятницу" → calendar
+        User: "очисти календарь на завтра" → calendar
+
+        Webpage Examples:
         User: "сделай краткое изложение этой страницы" → summarize_webpage
         User: "summarize this page" → summarize_webpage
         User: "дай краткое содержание текущей вкладки" → summarize_webpage
@@ -449,6 +480,161 @@ User input: "{text}"
             except json.JSONDecodeError:
                 return {"command": {"action": "control_media", "mediaCommand": "noop"}}
         return {"command": {"action": "control_media", "mediaCommand": "noop"}}
+
+
+class CalendarAgent:
+    @staticmethod
+    async def handle_calendar_command(
+        text: str, lang: str, user_events: list[dict]
+    ) -> dict:
+        """
+        Analyze user input and map it to a calendar operation.
+        Args:
+            text: User's voice command text
+            lang: User's language
+            user_events: List of user's existing events, each containing:
+                        {
+                            "title": str,
+                            "description": str,
+                            "start_date": datetime,
+                            "location": str
+                        }
+        Returns:
+            Dict with calendar command and necessary data.
+        """
+        # Convert events to a more readable format for the AI
+        events_text = ""
+        if user_events:
+            events_text = "Your current events:\n"
+            for event in user_events:
+                start = event["start_date"].strftime("%Y-%m-%d %H:%M")
+                events_text += f"- {event['title']} on {start}"
+                if event.get("location"):
+                    events_text += f" at {event['location']}"
+                events_text += "\n"
+
+        prompt = f"""
+        You are a multilingual calendar assistant. Analyze the user's request and map it to a calendar operation.
+        The user may speak in any language and use various ways to express their intent.
+
+        {events_text}
+
+        Respond ONLY with a JSON object in one of these formats:
+
+        1. For creating events:
+        {{
+          "command": {{
+            "action": "calendar",
+            "operation": "create_event",
+            "data": {{
+              "title": "Meeting with Danial",
+              "description": "Business meeting",
+              "start_date": "2024-07-03T15:00:00",
+              "location": "Office" // optional
+            }},
+            "answer": "<short report for user in their language>"
+          }}
+        }}
+
+        2. For querying events:
+        {{
+          "command": {{
+            "action": "calendar",
+            "operation": "query_events",
+            "data": {{
+              "query_type": "specific_event|date_range|free_slots",
+              "event_title": "Meeting with Danial", // for specific_event
+              "start_date": "2024-07-03", // for date_range
+              "end_date": "2024-07-10"    // for date_range
+            }},
+            "answer": "<short report for user in their language>"
+          }}
+        }}
+
+        Rules:
+        - Parse dates and times into ISO format with timezone (e.g., "2024-07-03T15:00:00")
+        - Always include an "answer" field with a user-friendly response in their language
+        - For unclear requests, set operation to "unknown"
+        - Location is optional for events
+        - Description can be generated from context if not explicitly provided
+        - When responding to queries, reference the actual events in the user's calendar
+        - For free slots queries, consider existing events to find actually free time
+        - Check for conflicts when creating new events
+
+        Query Types Explained:
+        - specific_event: When user asks about a specific event ("When is my meeting with Danial?")
+        - date_range: When user asks about events in a time period ("What meetings do I have this week?")
+        - free_slots: When user asks about free time ("When am I free this week?")
+
+        Examples:
+        "поставь встречу с Даниалом на завтра в 3 часа в офисе" →
+        {{
+          "command": {{
+            "action": "calendar",
+            "operation": "create_event",
+            "data": {{
+              "title": "Встреча с Даниалом",
+              "description": "Деловая встреча с Даниалом",
+              "start_date": "<tomorrow's date>T15:00:00",
+              "location": "Офис"
+            }},
+            "answer": "Запланировал встречу с Даниалом на завтра, 15:00, в офисе"
+          }}
+        }}
+
+        "когда у меня встреча с Даниалом?" →
+        {{
+          "command": {{
+            "action": "calendar",
+            "operation": "query_events",
+            "data": {{
+              "query_type": "specific_event",
+              "event_title": "Встреча с Даниалом"
+            }},
+            "answer": "<based on actual events: either 'У вас встреча с Даниалом завтра в 15:00' or 'Встреч с Даниалом не найдено'>"
+          }}
+        }}
+
+        "какие встречи у меня на этой неделе?" →
+        {{
+          "command": {{
+            "action": "calendar",
+            "operation": "query_events",
+            "data": {{
+              "query_type": "date_range",
+              "start_date": "<this week start>",
+              "end_date": "<this week end>"
+            }},
+            "answer": "<list actual events from the calendar for this week>"
+          }}
+        }}
+
+        "когда у меня есть свободное время на этой неделе?" →
+        {{
+          "command": {{
+            "action": "calendar",
+            "operation": "query_events",
+            "data": {{
+              "query_type": "free_slots",
+              "start_date": "<this week start>",
+              "end_date": "<this week end>"
+            }},
+            "answer": "<analyze actual events and suggest truly free time slots>"
+          }}
+        }}
+
+        User language: {lang}
+        User input: "{text}"
+        """
+        response = await get_35_ai_answer(prompt)
+        match = CMD_JSON_RE.search(response)
+        if match:
+            json_str = match.group(0)
+            try:
+                return json.loads(json_str)
+            except json.JSONDecodeError:
+                return {"command": {"action": "calendar", "operation": "unknown"}}
+        return {"command": {"action": "calendar", "operation": "unknown"}}
 
 
 async def needs_web_search(text: str) -> tuple[bool, str]:

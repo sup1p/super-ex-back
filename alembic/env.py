@@ -6,7 +6,7 @@ import os
 from dotenv import load_dotenv
 
 from alembic import context
-from app.models import Notes, User, ChatSession, Message
+from app.models import Notes, User, ChatSession, Message, Event
 from app.core.database import Base
 
 load_dotenv()
