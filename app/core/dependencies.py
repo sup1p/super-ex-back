@@ -537,6 +537,7 @@ async def handle_voice_websocket(websocket: WebSocket, user_id: str):
                                 start_date=start_date,  # Now it's a datetime object
                                 location=event_data.get("location"),
                                 user_id=int(user_id),
+                                reminder=15,
                             )
                             db.add(new_event)
                             await db.commit()
