@@ -540,6 +540,7 @@ async def handle_voice_websocket(websocket: WebSocket, user_id: str):
                             )
                             db.add(new_event)
                             await db.commit()
+                            logger.info(f"New event created: {new_event}")
 
                             answer = cmd["command"]["answer"]
                             # Synthesize voice response
