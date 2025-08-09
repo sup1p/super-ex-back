@@ -1,3 +1,11 @@
+<div align="center">
+  <img src="icon.png" alt="Megan Voice Assistant" width="128" height="128">
+  <h1>Megan Voice Assistant Chrome Extension</h1>
+  <p><strong>Your AI-powered voice assistant for the browser</strong></p>
+</div>
+
+---
+
 # Megan Voice Assistant Backend
 
 This repository is one of three components that make up the **[Megan Voice Assistant Extension](https://yourmegan.me)** project:
