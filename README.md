@@ -1,10 +1,10 @@
 # Megan Voice Assistant Backend
 
-This repository is one of three components that make up the **Megan Voice Assistant Extension** project:
+This repository is one of three components that make up the **[Megan Voice Assistant Extension](https://yourmegan.me)** project:
 
-- **[Landing Page](link-to-landing-repo)** - Project website and documentation
-- **[Browser Extension](link-to-extension-repo)** - Chrome extension frontend
-- **[Backend API](link-to-this-repo)** - Server-side services and AI integration *(this repository)*
+- **[Landing Page](https://github.com/sup1p/super-ex-landing)** - Project website and documentation
+- **[Browser Extension](https://github.com/sup1p/super-extension)** - Chrome extension frontend
+- **[Backend API](https://github.com/sup1p/super-ex-back)** - Server-side services and AI integration *(this repository)*
 
 ---
 
