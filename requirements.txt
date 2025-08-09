@@ -47,3 +47,4 @@ attrs==25.3.0
 pydantic[email]
 tiktoken
 redis>=4.2.0
+langdetect

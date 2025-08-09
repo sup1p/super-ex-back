@@ -5,7 +5,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import User
 
-from app.core.dependencies import get_db, get_current_user
+from app.core.dependencies.utils import get_current_user
+from app.core.database import get_db
 
 from typing import List
 
@@ -13,9 +14,7 @@ from app.token_limit import check_translate_limit_only, increment_translate_limi
 
 from app.schemas import TranslateRequest
 
-from pydantic import BaseModel
 
-import os
 import logging
 import app.redis_client
 

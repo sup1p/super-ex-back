@@ -1,7 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 
-from app.core.dependencies import get_db, get_current_user
+from app.core.dependencies.utils import get_current_user
+from app.core.database import get_db
 from app.models import User
 from app.schemas import UserRead, ChangePasswordRequest, ForgotPasswordRequest
 from app.core.security import (

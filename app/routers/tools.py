@@ -4,9 +4,10 @@ from googletrans import Translator
 
 from app.models import User
 
-from app.core.dependencies import get_current_user, fetch_website
+from app.core.dependencies.utils import get_current_user
+from app.core.dependencies.web import fetch_website
 
-from app.services import summarize
+from app.services.summarize_service import summarize_text_full
 
 from app.schemas import SummaryRequest, TextRequest
 
@@ -42,7 +43,7 @@ async def summarize_webpage_new(
     await check_summarize_limit_only(
         redis, user_id, symbols_needed
     )  # returns 429 if limit exceeded
-    summarized_text = await summarize.summarize_text_full(truncated_website_text, 2000)
+    summarized_text = await summarize_text_full(truncated_website_text, 2000)
     await increment_summarize_limit(redis, user_id, symbols_needed)
     return summarized_text
 
@@ -61,9 +62,7 @@ async def summarize_text(
     await check_summarize_limit_only(
         redis, user_id, symbols_needed
     )  # returns 429 if limit exceeded
-    summarized_text = await summarize.summarize_text_full(
-        truncated_text_to_summarize, 3000
-    )
+    summarized_text = await summarize_text_full(truncated_text_to_summarize, 3000)
     await increment_summarize_limit(redis, user_id, symbols_needed)
     logger.info(f"Sent summarized text to client: {text_to_summarize}")
     return {"summarized_text": summarized_text}

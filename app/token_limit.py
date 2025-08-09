@@ -1,12 +1,14 @@
 from fastapi import HTTPException
-import os
 from datetime import date
+
+from app.core.config import settings
+
 import logging
 
-AI_TOKEN_LIMIT = os.getenv("AI_TOKEN_LIMIT")
-TRANSLATE_SYMBOLS_LIMIT = os.getenv("TRANSLATE_SYMBOLS_LIMIT")
-VOICE_SYMBOLS_LIMIT = os.getenv("VOICE_SYMBOLS_LIMIT")
-SUMMARIZE_SYMBOLS_LIMIT = os.getenv("SUMMARIZE_SYMBOLS_LIMIT")
+AI_TOKEN_LIMIT = settings.ai_token_limit
+TRANSLATE_SYMBOLS_LIMIT = settings.translate_symbols_limit
+VOICE_SYMBOLS_LIMIT = settings.voice_symbols_limit
+SUMMARIZE_SYMBOLS_LIMIT = settings.summarize_symbols_limit
 
 logger = logging.getLogger(__name__)
 

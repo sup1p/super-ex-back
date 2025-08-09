@@ -7,17 +7,16 @@ from app.core.database import AsyncSessionLocal
 from app.models import ChatSession, Message, User
 from app.schemas import ChatSessionMessageRead, ChatSessionRead
 
-from app.core.dependencies import get_db, get_current_user, count_tokens
+from app.core.dependencies.utils import get_current_user, count_tokens
+from app.core.database import get_db
 from app.core.config import settings
-from app.services.voice import (
-    get_ai_answer,
-    get_35_ai_answer,
-    needs_web_search,
-    process_web_search_results,
-)
+from app.services.voice.ai import get_ai_answer, get_35_ai_answer
+
+from app.services.voice.web_search import needs_web_search, process_web_search_results
 
 from app.token_limit import check_ai_limit_only, increment_ai_limit
 import app.redis_client
+
 from jose import JWTError, jwt
 from typing import List
 import logging
@@ -155,7 +154,6 @@ async def websocket_chat(websocket: WebSocket):
                     db.add(chat_session)
                     await db.commit()
                     await db.refresh(chat_session)
-                    first_message = data
                     logger.info(f"Создан новый чат с названием: {chat_name}")
                 # Сохраняем сообщение пользователя
                 user_msg = Message(

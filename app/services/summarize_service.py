@@ -1,4 +1,4 @@
-from .voice import get_ai_answer, get_35_ai_answer
+from app.services.voice.ai import get_ai_answer, get_35_ai_answer
 
 
 async def summarize_text_full(text: str, chunk_size: int = 3000) -> str:

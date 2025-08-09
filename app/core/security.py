@@ -4,18 +4,21 @@ from passlib.context import CryptContext
 
 from app.core.config import settings
 
-import os
 import json
 from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
-from dotenv import load_dotenv
 
 from email.message import EmailMessage
 from aiosmtplib import send
 
-load_dotenv()
 
+SECRET_KEY = settings.secret_key
 
-SECRET_KEY = os.getenv("SECRET_KEY")
+SMTP_HOST = settings.smtp_host
+SMTP_PORT = settings.smtp_port
+SMTP_USER = settings.smtp_user
+SMTP_PASS = settings.smtp_pass
+FRONTEND_URL = settings.frontend_url
+
 SALT = "email-confirmation"
 
 serializer = URLSafeTimedSerializer(SECRET_KEY)
@@ -36,13 +39,6 @@ def verify_email_token(token: str, max_age: int = 3600) -> dict:
         raise ValueError("Токен истёк")
     except BadSignature:
         raise ValueError("Токен недействителен")
-
-
-SMTP_HOST = os.getenv("SMTP_HOST")
-SMTP_PORT = int(os.getenv("SMTP_PORT"))
-SMTP_USER = os.getenv("SMTP_USER")
-SMTP_PASS = os.getenv("SMTP_PASS")
-FRONTEND_URL = os.getenv("FRONTEND_URL")  # например: http://localhost:5173
 
 
 async def send_confirmation_email(email: str, token: str):

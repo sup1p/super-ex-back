@@ -4,7 +4,7 @@ from sqlalchemy import select, delete
 from app.models import User, PendingUser
 from app.schemas import RegisterRequest, EmailSchema
 
-from app.core.dependencies import get_db, AsyncSession
+from app.core.database import get_db, AsyncSession
 from app.core.security import (
     generate_email_token,
     verify_email_token,

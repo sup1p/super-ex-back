@@ -1,23 +1,19 @@
 from fastapi import APIRouter, Depends, WebSocket
 
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
-from app.core.database import AsyncSessionLocal
+from app.core.database import get_db
 
 from app.models import User
 from app.schemas import TextRequest, SummaryRequest
 
 from edge_tts.exceptions import NoAudioReceived
 
-from app.core.dependencies import (
-    get_current_user,
-    handle_voice_websocket,
-    voice_website_summary,
-)
+from app.core.dependencies.utils import get_current_user
+from app.core.dependencies.web import voice_website_summary
+from app.core.dependencies.voice import handle_voice_websocket
+
 from app.core.config import settings
-from app.services.voice import (
-    synthesize_speech_async,
-)
+from app.services.voice.speech import synthesize_speech_async
 import app.redis_client
 from app.token_limit import check_voice_limit_only, increment_voice_limit
 
@@ -29,7 +25,7 @@ import base64
 
 
 logger = logging.getLogger(__name__)
-
+voice = settings.eleven_labs_voice_id
 
 router = APIRouter()
 
@@ -42,7 +38,7 @@ async def websocket_voice(websocket: WebSocket):
         await websocket.close()
         logger.error("WebSocket закрыт: не передан токен.")
         return
-    async with AsyncSessionLocal() as db:
+    async with get_db() as db:
         try:
             payload = jwt.decode(token, settings.secret_key, algorithms=["HS256"])
             user_id: str = payload.get("sub")
@@ -67,7 +63,7 @@ async def websocket_voice(websocket: WebSocket):
     await handle_voice_websocket(websocket, str(user_id))
 
 
-@router.post("/tools/voice/selected")
+@router.post("/tools/voice/selected", tags=["Tools"])
 async def voice_text(
     voice_request: TextRequest, current_user: User = Depends(get_current_user)
 ):
@@ -78,7 +74,6 @@ async def voice_text(
     await check_voice_limit_only(redis, user_id, symbols_needed)
 
     text_to_voice = voice_request.text
-    voice = os.getenv("ELEVEN_LABS_VOICE_ID")
     with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as f:
         tts_path = f.name
     try:
@@ -107,7 +102,7 @@ async def voice_text(
     return {"text": text_to_voice, "audio_base64": audio_b64}
 
 
-@router.post("/tools/voice/website_summary")
+@router.post("/tools/voice/website_summary", tags=["Tools"])
 async def voice_website_summary_route(
     data: SummaryRequest, current_user: User = Depends(get_current_user)
 ):

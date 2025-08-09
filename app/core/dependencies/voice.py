@@ -1,217 +1,45 @@
-from fastapi import Depends, HTTPException, status, WebSocket, WebSocketDisconnect
-from jose import jwt, JWTError
-from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi import WebSocket, HTTPException, WebSocketDisconnect
 from sqlalchemy import select
-
-from app.core.config import settings
-from app.core.database import AsyncSessionLocal
-from app.models import User, Event
-from dotenv import load_dotenv
-import logging
-import base64
-import json
-import os
-import re
-import tempfile
 from edge_tts.exceptions import NoAudioReceived
-from dotenv import load_dotenv
-import asyncio
-import tiktoken
+
+
+from app.core.dependencies.utils import is_valid_text, count_tokens
+
 from app.token_limit import (
     check_ai_limit_only,
-    increment_ai_limit,
     check_voice_limit_only,
     increment_voice_limit,
+    increment_ai_limit,
 )
+
+from app.core.dependencies.web import voice_website_summary
+
 import app.redis_client
+from app.core.database import get_db
+from app.core.config import settings
+from app.models import Event
 
-from app.services import summarize
+from app.services.voice.speech import synthesize_speech_async, transcribe_audio_async
+from app.services.voice.web_search import needs_web_search, process_web_search_results
 
-from ..services.voice import (
-    IntentAgent,
-    ActionAgent,
-    MediaAgent,
-    TextGenerationAgent,
-    synthesize_speech_async,
-    transcribe_audio_async,
-    needs_web_search,
-    process_web_search_results,
-    CalendarAgent,
-)
+from app.services.voice.agents.intent_agent import IntentAgent
+from app.services.voice.agents.action_agent import ActionAgent
+from app.services.voice.agents.media_agent import MediaAgent
+from app.services.voice.agents.text_gen_agent import TextGenerationAgent
+from app.services.voice.agents.calendar_agent import CalendarAgent
 
+
+import os
 import logging
-import requests
-import aiohttp
-
-load_dotenv()
-logger = logging.getLogger(__name__)
-
-
-voice_map = {
-    "ru": "ru-RU-DmitryNeural",
-    "en": "en-US-GuyNeural",
-    "de": "de-DE-ConradNeural",
-    "fr": "fr-FR-HenriNeural",
-    "es": "es-ES-AlvaroNeural",
-    "kk": "kk-KZ-DauletNeural",
-}
+import tempfile
+import base64
+import json
+import re
 
 
-SERPER_API_KEY = os.getenv("SERPER_API_KEY")
-
-
-def count_tokens(text: str, model: str = "gpt-3.5-turbo") -> int:
-    enc = tiktoken.encoding_for_model(model)
-    return len(enc.encode(text))
-
-
-async def fetch_website(website_url: str):
-    url = "https://scrape.serper.dev"
-    payload = {"url": website_url}
-    headers = {
-        "X-API-KEY": SERPER_API_KEY,  # Вставь свой ключ
-        "Content-Type": "application/json",
-    }
-
-    async with aiohttp.ClientSession() as session:
-        async with session.post(url, headers=headers, json=payload) as response:
-            result = await response.text()
-            return result
-
-
-async def get_voice_summary_within_limit(redis, user_id: str, text: str) -> str:
-    """
-    Возвращает часть текста, которую можно озвучить, не превышая лимит символов на сегодня.
-    Если лимита хватает — возвращает весь текст.
-    Если нет — только часть, которая помещается в лимит.
-    """
-    from app.token_limit import VOICE_SYMBOLS_LIMIT
-    from datetime import date
-
-    today = date.today().isoformat()
-    key = f"voice_symbols:{user_id}:{today}"
-    current = await redis.get(key)
-    current = int(current) if current else 0
-    limit = int(VOICE_SYMBOLS_LIMIT)
-    remaining = limit - current
-    if remaining <= 0:
-        return ""
-    return text[:remaining]
-
-
-async def voice_website_summary(website_url: str, current_user_id: str):
-    user_id = str(current_user_id)
-    symbols_needed = 100
-    redis = app.redis_client.redis
-
-    await check_voice_limit_only(redis, user_id, symbols_needed)
-
-    data_to_voice = await fetch_website(website_url)
-
-    try:
-        parsed = json.loads(data_to_voice)
-        if isinstance(parsed, dict) and "text" in parsed:
-            data_to_voice = parsed["text"]
-    except Exception:
-        pass  # if not JSON — leave as is
-
-    if len(data_to_voice) > 1000:
-        truncated_data_to_voice = data_to_voice[:10000]
-
-        summarized_text_to_voice = await summarize.summarize_text_full(
-            truncated_data_to_voice, 2000
-        )
-
-        summarized_text_to_voice = await get_voice_summary_within_limit(
-            redis, user_id, summarized_text_to_voice
-        )
-
-    else:
-        truncated_data_to_voice = data_to_voice
-        summarized_text_to_voice = truncated_data_to_voice
-
-    voice = os.getenv("ELEVEN_LABS_VOICE_ID")
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as f:
-        tts_path = f.name
-    try:
-        await synthesize_speech_async(summarized_text_to_voice, voice, tts_path)
-    except NoAudioReceived:
-        summarized_text_to_voice = "Error occured, could not synthesize text"
-        logger.error("[TTS] No audio received from edge_tts.")
-        audio_b64 = ""
-    except Exception as tts_e:
-        summarized_text_to_voice = "Error occured, could not synthesize text"
-        logger.error(f"TTS error: {tts_e}", exc_info=True)
-        audio_b64 = ""
-    else:
-        with open(tts_path, "rb") as f:
-            audio_b64 = base64.b64encode(f.read()).decode()
-        os.remove(tts_path)
-    if audio_b64 == "":
-        logger.info(
-            f"Error occured and system could not synthesize text. Sent text to client: {summarized_text_to_voice}"
-        )
-        return {"text": summarized_text_to_voice}
-    logger.info(f"Sent voiced text to client: {summarized_text_to_voice}")
-
-    await increment_voice_limit(redis, user_id, len(summarized_text_to_voice) + 50)
-
-    return {"text": summarized_text_to_voice, "audio_base64": audio_b64}
-
-
-def is_valid_text(text: str) -> bool:
-    # Проверяем минимальную длину оригинального текста
-    if len(text.strip()) < 5:
-        return False
-
-    # Убираем пробелы и символы, оставляем только буквы
-    cleaned = re.sub(r"[^\wа-яА-ЯёЁ]", "", text)
-
-    # Игнорируем слишком короткие или непонятные тексты
-    if len(cleaned) < 4:
-        return False
-
-    # Игнорируем если нет хотя бы 2 букв подряд
-    if not re.search(r"[a-zA-Zа-яА-ЯёЁ]{2,}", text):
-        return False
-
-    # Игнорируем часто встречающиеся фразы при отсутствии речи
-    common_noise_phrases = ["thank you", "thanks", "thank", "you", "thank you."]
-    if text.lower().strip() in common_noise_phrases:
-        return False
-
-    return True
-
-
-async def get_db() -> AsyncSession:
-    async with AsyncSessionLocal() as session:
-        yield session
-
-
-async def get_current_user(
-    token: str = Depends(settings.oauth2_scheme), db: AsyncSession = Depends(get_db)
-) -> User:
-    try:
-        payload = jwt.decode(token, settings.secret_key, algorithms=["HS256"])
-        user_id: str = payload.get("sub")
-        if not user_id:
-            raise HTTPException(status_code=401, detail="Invalid token")
-    except JWTError:
-        raise HTTPException(status_code=401, detail="Invalid token")
-
-    result = await db.execute(select(User).where(User.id == int(user_id)))
-    user = result.scalar_one_or_none()
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-    return user
-
-
-# --- вспомогательные функции -------------------------------------------------
+voice = settings.eleven_labs_voice_id
 
 CMD_JSON_RE = re.compile(r"^\s*\{.*\}\s*$", re.S)  # грубая проверка JSON
-
-
-# --- основная точка входа -----------------------------------------------------
 
 
 async def handle_voice_websocket(websocket: WebSocket, user_id: str):
@@ -318,7 +146,6 @@ async def handle_voice_websocket(websocket: WebSocket, user_id: str):
                     if len(answer) > 0:
                         await check_voice_limit_only(redis, user_id, len(answer))
 
-                        voice = os.getenv("ELEVEN_LABS_VOICE_ID")
                         with tempfile.NamedTemporaryFile(
                             delete=False, suffix=".mp3"
                         ) as f:
@@ -364,7 +191,6 @@ async def handle_voice_websocket(websocket: WebSocket, user_id: str):
                             raise
 
                     cmd = await MediaAgent.handle_media_command(text, lang)
-                    tokens_in_cmd = count_tokens(cmd)
 
                     await increment_ai_limit(
                         redis, user_id, tokens_needed_for_handle_media
@@ -426,7 +252,6 @@ async def handle_voice_websocket(websocket: WebSocket, user_id: str):
 
                     await check_voice_limit_only(redis, user_id, len(answer))
 
-                    voice = os.getenv("ELEVEN_LABS_VOICE_ID")
                     with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as f:
                         tts_path = f.name
                     try:
@@ -474,7 +299,6 @@ async def handle_voice_websocket(websocket: WebSocket, user_id: str):
 
                     await check_voice_limit_only(redis, user_id, len(answer))
 
-                    voice = os.getenv("ELEVEN_LABS_VOICE_ID")
                     with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as f:
                         tts_path = f.name
                     try:
@@ -501,7 +325,7 @@ async def handle_voice_websocket(websocket: WebSocket, user_id: str):
 
                 elif intent == "calendar":
                     # Fetch user's events first
-                    async with AsyncSessionLocal() as db:
+                    async with get_db() as db:
                         events = await db.execute(
                             select(Event).where(Event.user_id == int(user_id))
                         )
@@ -547,7 +371,6 @@ async def handle_voice_websocket(websocket: WebSocket, user_id: str):
                             # Synthesize voice response
                             await check_voice_limit_only(redis, user_id, len(answer))
 
-                            voice = os.getenv("ELEVEN_LABS_VOICE_ID")
                             with tempfile.NamedTemporaryFile(
                                 delete=False, suffix=".mp3"
                             ) as f:
@@ -576,7 +399,6 @@ async def handle_voice_websocket(websocket: WebSocket, user_id: str):
                             answer = cmd["command"]["answer"]
                             await check_voice_limit_only(redis, user_id, len(answer))
 
-                            voice = os.getenv("ELEVEN_LABS_VOICE_ID")
                             with tempfile.NamedTemporaryFile(
                                 delete=False, suffix=".mp3"
                             ) as f:
@@ -604,7 +426,6 @@ async def handle_voice_websocket(websocket: WebSocket, user_id: str):
                     answer = "Please, repeat your command."
                     logger.info("AI could not understand request")
 
-                voice = os.getenv("ELEVEN_LABS_VOICE_ID")
                 with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as f:
                     tts_path = f.name
                 try:
@@ -645,18 +466,3 @@ async def handle_voice_websocket(websocket: WebSocket, user_id: str):
             await websocket.close(code=1011, reason="Server error")
         except:
             logger.error("Failed to close websocket after error.")
-
-
-async def handle_web_search(query: str):
-    url = "https://google.serper.dev/search"
-
-    payload = json.dumps({"q": query})
-
-    headers = {
-        "X-API-KEY": os.getenv("SERPER_API_KEY"),
-        "Content-Type": "application/json",
-    }
-
-    async with aiohttp.ClientSession() as session:
-        async with session.post(url, headers=headers, data=payload) as response:
-            return await response.json()
